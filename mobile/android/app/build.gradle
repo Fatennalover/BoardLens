@@ -1,0 +1,31 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'app.boardlens.companion'
+    compileSdk 36
+    defaultConfig { applicationId 'app.boardlens.companion'; minSdk 26; targetSdk 36; ndk { abiFilters 'arm64-v8a' }; versionCode = (project.findProperty('boardlensVersionCode') ?: '30').toString().toInteger(); versionName '1.9.8' }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    sourceSets.main.assets.srcDir '../../../desktop/chess_helper/assets/engines'
+    testOptions { unitTests { includeAndroidResources = true } }
+    buildTypes { release { minifyEnabled false; debuggable false } }
+    packaging { jniLibs { useLegacyPackaging true } }
+}
+dependencies { implementation 'org.opencv:opencv:4.12.0'; implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.24.3'; testImplementation 'junit:junit:4.13.2'; testImplementation 'org.robolectric:robolectric:4.17'; testRuntimeOnly 'com.microsoft.onnxruntime:onnxruntime:1.24.3' }
+configurations { localOcr }
+dependencies {
+    implementation 'com.google.mlkit:text-recognition:16.0.1'
+    localOcr 'com.google.mlkit:text-recognition:16.0.1'
+}
+tasks.register('prepareOcrDependencies', Sync) {
+    from configurations.localOcr
+    into layout.buildDirectory.dir('ocr-dependencies')
+    doLast {
+        def xml = '<Project><ItemGroup>\n'
+        configurations.localOcr.resolvedConfiguration.resolvedArtifacts.unique { it.file.name }.sort { it.file.name }.each { artifact ->
+            def id=artifact.moduleVersion.id
+            xml += ' <AndroidLibrary Include="../app/build/ocr-dependencies/'+artifact.file.name+'" Bind="false" JavaArtifact="'+id.group+':'+id.name+':'+id.version+'"/>\n'
+        }
+        xml += '</ItemGroup></Project>\n'
+        file('../tiny-runtime/OcrDependencies.props').text=xml
+    }
+}
+tasks.named('preBuild').configure { dependsOn 'prepareOcrDependencies' }

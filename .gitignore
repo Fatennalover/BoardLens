@@ -1,0 +1,27 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.gradle/
+.idea/
+**/build/
+**/local.properties
+*.iml
+*.jks
+*.keystore
+.DS_Store
+.env
+.env.*
+dist/
+
+# Local reference artwork and generated UI fixtures are not redistributable.
+mobile/android/qa-components/src/main/assets/
+tools/recognition/reference-assets/
+tools/recognition/*.npy
+tools/recognition/*.pt
+tools/recognition/*.onnx
+tools/recognition/catalog.json
+tools/recognition/downloads.json
+
+**/bin/
+**/obj/

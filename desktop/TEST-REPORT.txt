@@ -1,0 +1,30 @@
+BOARDLENS 2.15 / ANDROID 1.6 — NOVEMBER 11, 2026
+
+193 desktop automated tests passed on macOS with real Stockfish 19.
+Android source compilation and 10 JVM tests (rules and projected geometry) pass.
+The shared companion UI rendered at 384 CSS pixels without horizontal overflow
+in an isolated Android component harness. Header and navigation clear system
+bars. This harness has no capture, overlay, engine or network permission.
+The native phone dashboard uses the same style and reusable view components.
+
+Maia 2, Maia 3 5M/23M/79M and Boychesser returned legal five-ply continuations
+with the new controls. CopyCat passed at a 0.6s clock budget; an initial 0.15s
+budget failed under heavy host load. A budget is a limit, not a guarantee.
+
+The new recognition coverage JSON records exact synthetic theme and Android
+fixture results, including failed or uncertain styles. These are component
+tests, not a claim that every live board, theme or 3D pose works. The physical
+Android device was not modified/tested. Updated full-app background capture was not
+verified through the new APK in these component tests.
+
+The Mac app's embedded launcher keeps capture attributed to BoardLens.
+User-approved screen access restored actual live board detection in 2.14.
+The permission page gates first launch and returns if required access is lost.
+The app is installed in Applications; Downloads points to the installed app.
+Automatic updates preserve settings and optional engine data.
+
+Earlier full development-app live capture tests are historical evidence only.
+Play Protect blocked the 1.5.0/code7 release candidate, which remains retained
+for review. No successful release upgrade or physical-device result is inferred.
+
+Final synthetic Android discovery sweep: 160/186 exact, 26 rejected, zero accepted wrong. No universal theme/3D claim.

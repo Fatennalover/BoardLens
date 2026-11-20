@@ -1,0 +1,182 @@
+name: Native desktop apps
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Optional existing draft release to upload after tests
+        required: false
+        default: ''
+        type: string
+      edition:
+        description: Build edition
+        default: normal
+        type: choice
+        options: [normal, autoplay-test]
+      platform:
+        description: Platform to build
+        required: false
+        default: all
+        type: choice
+        options: [all, windows, mac-intel, mac-arm]
+permissions:
+  contents: write
+jobs:
+  package:
+    env:
+      BOARDLENS_BUILD_LAB: ${{ inputs.edition == 'autoplay-test' && '1' || '0' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(inputs.platform == 'mac-arm' && '[{"os":"macos-15","name":"Mac-AppleSilicon"}]' || inputs.platform == 'mac-intel' && '[{"os":"macos-15-intel","name":"Mac-Intel"}]' || inputs.platform == 'windows' && '[{"os":"windows-latest","name":"Windows-x64"}]' || '[{"os":"windows-latest","name":"Windows-x64"},{"os":"macos-15-intel","name":"Mac-Intel"},{"os":"macos-15","name":"Mac-AppleSilicon"}]') }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ inputs.release_tag || github.sha }}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Configure the release repository
+        if: inputs.release_tag != ''
+        shell: python
+        run: |
+          import json, os
+          from pathlib import Path
+          target = Path("desktop/chess_helper/assets/engines/release-channel.json")
+          target.write_text(json.dumps({"repository": os.environ["GITHUB_REPOSITORY"]}) + "\n")
+      - name: Build tools
+        run: python -m pip install uv==0.11.3 Pillow
+      - name: Build Windows app
+        if: runner.os == 'Windows'
+        run: python desktop/packaging/build_native.py --work native-work --out native-dist
+      - name: Build Mac app
+        if: runner.os == 'macOS'
+        run: uv run --python 3.12.13 --no-project python desktop/packaging/build_native.py --work native-work --out native-dist
+      - name: Build drag-to-Applications installer
+        if: runner.os == 'macOS'
+        run: |
+          python - <<'PYCODE'
+          import json,subprocess
+          from pathlib import Path
+          runtime=Path('native-work/payload/runtime/bin/python3').resolve()
+          subprocess.run([str(runtime),'-m','pip','install','dmgbuild==1.6.7'],check=True)
+          meta=json.loads(Path('native-dist/native-build.json').read_text())
+          subprocess.run([str(runtime),'desktop/packaging/build_dmg.py','--app',meta['app_path'],'--out','native-dist'],check=True)
+          PYCODE
+      - name: Test Windows GUI app
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $target = Get-Content native-dist/native-build.json | ConvertFrom-Json
+          $report = Join-Path $PWD 'native-dist/smoke.json'
+          $p = Start-Process -FilePath $target.app_path -ArgumentList @('--self-test', $report) -PassThru -Wait
+          if (Test-Path $report) { Get-Content $report }
+          if ($p.ExitCode -ne 0) { throw 'Native launcher self-test failed' }
+          $result = Get-Content $report | ConvertFrom-Json
+          if (-not $result.legal_move -or $result.error -or $result.console_window -ne 0) { throw ($result | ConvertTo-Json) }
+          Get-Content $report
+      - name: Test cursor-free clicks on Windows
+        if: runner.os == 'Windows' && inputs.edition == 'autoplay-test'
+        shell: pwsh
+        run: |
+          $env:PYTHONPATH = (Join-Path $PWD 'desktop')
+          & native-work/payload/runtime/python.exe desktop/tests/window_clicks_smoke.py
+          if ($LASTEXITCODE -ne 0) { throw 'Cursor-free clicks did not reach the Windows test window' }
+      - name: Test Mac GUI app
+        if: runner.os == 'macOS'
+        run: |
+          python - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          data=json.loads(Path('native-dist/native-build.json').read_text())
+          report=Path('native-dist/smoke.json').resolve()
+          subprocess.run([str(Path(data['app_path'])/'Contents/MacOS/BoardLens'),'--self-test',str(report)],check=True,timeout=180)
+          result=json.loads(report.read_text())
+          assert result['legal_move'] and not result.get('error'),result
+          print(json.dumps(result,indent=2))
+          PY
+      - name: Test optional LC0 on Windows
+        if: runner.os == 'Windows'
+        shell: python
+        run: |
+          import os,subprocess,tempfile
+          from pathlib import Path
+          runtime=Path('native-work/payload/runtime')/('python.exe' if os.name=='nt' else 'bin/python3')
+          script="""import chess
+          from chess_helper import engine_library
+          from chess_helper.engine import EngineJob
+          from chess_helper.core import SearchSettings
+          engine_library.install('lc0')
+          result=EngineJob().run(engine_library.extra_command(engine_library.BY_ID['lc0']),chess.Board(),SearchSettings(engine_kind='lc0',engine_id='lc0',seconds=.3,multipv=3,predict_continuations=False))
+          assert len(result['lines'])==3
+          assert all(chess.Move.from_uci(line['move']) in chess.Board().legal_moves for line in result['lines'])
+          print('LC0 local engine: 3 legal alternatives on this build platform')
+          """
+          with tempfile.TemporaryDirectory(prefix='boardlens-lc0-test-') as data:
+              env=dict(os.environ,BOARDLENS_DATA_DIR=data)
+              subprocess.run([str(runtime.resolve()),'-c',script],cwd='desktop',env=env,check=True,timeout=300)
+      - name: Package Browser Reader
+        if: inputs.platform != 'all' || matrix.name == 'Mac-AppleSilicon'
+        shell: python
+        run: |
+          import sys
+          sys.path.insert(0, "desktop")
+          from chess_helper.browser_archive import write_archive
+          write_archive("native-dist/BoardLens-BrowserReader.zip")
+      - name: Upload verified app to draft release
+        if: success() && inputs.release_tag != ''
+        shell: python
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BOARDLENS_RELEASE: ${{ inputs.release_tag }}
+          BOARDLENS_PLATFORM: ${{ matrix.name }}
+        run: |
+          import hashlib,json,os,subprocess
+          from pathlib import Path
+          tag=os.environ['BOARDLENS_RELEASE']
+          release=json.loads(subprocess.check_output(['gh','release','view',tag,'--json','isDraft'],text=True))
+          assert release['isDraft'],'Only a draft release can receive build uploads'
+          data=json.loads(Path('native-dist/native-build.json').read_text())
+          asset=Path('native-dist')/data['asset']
+          h=hashlib.sha256()
+          with asset.open('rb') as f:
+              for part in iter(lambda:f.read(1024*1024),b''): h.update(part)
+          assert h.hexdigest()==data['sha256']
+          extra=[]
+          if data.get('dmg_asset'):
+              installer=Path('native-dist')/data['dmg_asset']
+              assert hashlib.sha256(installer.read_bytes()).hexdigest()==data['dmg_sha256']
+              extra.append(str(installer))
+          smoke=json.loads(Path('native-dist/smoke.json').read_text())
+          assert smoke['legal_move'] and not smoke.get('error')
+          reader=Path('native-dist/BoardLens-BrowserReader.zip')
+          if reader.is_file():
+              extra.append(str(reader))
+          fields=('version','platform','architecture','autoplay_test','asset','sha256','dmg_asset','dmg_sha256')
+          data={key:data[key] for key in fields if key in data}
+          data['smoke']={'legal_move':True}
+          metadata=Path('native-dist')/('native-'+os.environ['BOARDLENS_PLATFORM']+'.json')
+          metadata.write_text(json.dumps(data,indent=2))
+          subprocess.run(['gh','release','upload',tag,str(asset),str(metadata),*extra,'--clobber'],check=True)
+      - name: Collect startup logs
+        if: always()
+        shell: python
+        run: |
+          import os,shutil
+          from pathlib import Path
+          base=Path(os.environ.get('LOCALAPPDATA',str(Path.home()/'Library/Application Support')))/'BoardLens/native/logs'
+          if base.exists():
+              for file in base.glob('*.log'):
+                  target=Path('native-dist')/file.name
+                  target.parent.mkdir(exist_ok=True)
+                  shutil.copy2(file,target)
+                  print(file.read_text(errors='replace')[-12000:])
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: BoardLens-${{ matrix.name }}
+          path: |
+            native-dist/*.zip
+            native-dist/*.dmg
+          compression-level: 0
+          retention-days: 14

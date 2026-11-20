@@ -1,0 +1,345 @@
+BOARDLENS ANDROID 1.8.9 / CODE 19 — NOVEMBER 15, 2026
+
+85 host Android tests pass with real Maia and Stockfish checks, zero skipped.
+Release lint and the complete .NET APK build pass. The release signing identity
+is retained; all 16 ARM64 native libraries have 16 KB alignment.
+
+Only my color waits during the opponent's turn: predicted responses stay in
+text, not orange current-move arrows. Move/eval results commit on the capture
+queue and must match the current board and generation. Unmatched continuous
+reads cannot reset the turn. Legal skipped two-ply transitions retain history;
+matching skips unchanged piece origins. The 1.8.8 Scan now fix is included.
+
+Cancelled preview moves restore the prior turn/history. Checkmate and stalemate
+clear move arrows; resignation/timeout detection needs a separate result signal.
+
+The evaluation bar is a separate draggable panel with saved, clamped position
+and animated values. The board-size arrows stay touch-through. Moving the bar
+does not restart analysis. The signed complete APK installed in an isolated Android 36 ARM64 emulator.
+With Stockfish moves/evaluation, the live screen bar was visible, dragged
+below the board, and stayed there. Board touches passed through the arrows.
+Only my color hid move arrows during Black's turn after d2-d4; returning the
+pawn to d2 restored White's orange bishop recommendation. Stockfish evaluation
+remained independent and animated. This is an offline test board, not a human
+match. A four-move Fool's Mate was played on the offline board. The app reported
+Game over / Checkmate / Black wins by checkmate and cleared move arrows;
+the screen bar showed Mate. Stop ended sharing, and the test-board app was
+removed. A Android device is not connected for this version.
+See docs/FAST-MOVES.md for desktop and packaged Mac checks.
+
+PREVIOUS CHECKS — ANDROID 1.8.8 CANDIDATE
+
+BOARDLENS ANDROID 1.8.8 CANDIDATE / CODE 18 — NOVEMBER 14, 2026
+
+Physical 1.8.7 testing exposed a Scan now bug: after g1-f3, a refresh discarded
+the confirmed position and inferred White to move again instead of Black.
+Refresh now invalidates visual tracking and search results while retaining
+the confirmed chess state. The new screen placement is still synchronized
+and checked before that state is reused. A regression test failed before the
+fix and passes afterward, checking the same FEN (turn and castling included)
+and a subsequent legal Black reply.
+
+All 78 host Android tests pass with real Maia and Stockfish checks, zero skipped.
+Release lint and the complete .NET APK build pass. The signed APK keeps the
+release certificate; all 16 packaged ARM64 native libraries and ZIP entries
+pass 16 KB alignment checks. No engine/capture timing setting changed.
+
+The Android device rejected installation with INSTALL_FAILED_INSUFFICIENT_STORAGE.
+The owner chose to finish testing 1.8.7 for now. Code 17 remains installed;
+1.8.8 has NOT been installed or live-tested on the phone. The candidate APK
+is a local build, not a new public release. No personal files or models were
+deleted to make space.
+
+PREVIOUS CHECKS — ANDROID 1.8.7
+
+BOARDLENS ANDROID 1.8.7 / CODE 17 — NOVEMBER 13, 2026
+
+78 host Android tests pass with real Maia and Stockfish checks enabled, zero
+skipped; release lint and the complete .NET APK build pass. Engine thinking
+budgets, weights, confidence thresholds, legal-position checks and screen
+refresh intervals are unchanged.
+
+Discovery now checks the inexpensive 2D candidates before running a full
+64-square context inference on rejected grids. Context, rectangular and
+projected-board fallbacks remain available. Once a 2D board is known, a loading
+or animated frame stays on that fast path; global discovery recovers a changed
+theme after tracking is lost. Supported contextual tracking retains its model.
+
+Five-run Mac-host component benchmarks:
+- Real board below an empty false checkerboard: median 91 ms before, 42 ms
+  after the discovery change (35 ms in a later warmed audit run).
+- Rejected empty loading frame on a known 2D board: median 65 ms before,
+  13 ms after. The readable board was recognized again afterward.
+These are targeted component measurements, not Android device end-to-end timings.
+
+The same 186 local artwork fixtures were checked before and after in the host
+JVM: 158 exact reads, 28 rejected, zero accepted wrong, no lost exact cases.
+The overall median stayed near 21 ms; this is not an across-the-board speedup.
+The per-case report is docs/recognition/android-discovery-1.8.7-host.json.
+The earlier Android component audit used a different runtime and still stands
+separately; this host audit does not establish universal theme/3D coverage.
+
+Testing exposed an update-check bug: a deadline after partial release results
+could retain an unselected/older APK and surface an automatic error dialog.
+Failed checks now discard partial choices, so quiet failures do not interrupt
+startup and manual failures cannot offer that APK. A partial-result timeout
+regression test covers this behavior. The production update timeout is unchanged.
+
+The signed APK upgraded 1.8.6 in an isolated Android 36 ARM64 emulator with
+package verification enabled. It opened without the prior update-error dialog.
+Live capture recognized an untouched offline opening board and displayed
+arrows. A manual d2-d4 move through the overlay was accepted; suggestions and
+arrows updated for Black without Scan now. Boychesser at 0.3 s, evaluation off.
+Physical Android device follow-up: 1.8.7 upgraded 1.8.5 without clearing data; TinyHugeBot,
+0.1 s and evaluation off were retained. The untouched offline opening produced
+primary/reply arrows without a first move. Warm hide/reveal trials took 0.503,
+0.706 and 0.857 s from the fixture button tap to the recognition notification
+(median 0.706 s), using device timestamps with the first query delayed 2 s.
+These include input/paint/capture/confirmation/notification overhead, not engine
+or arrow latency. The sharing-start trial was observed in a 1.281–1.717 s host
+polling interval. Relocation was reacquired in 0.624 s by device timestamps.
+No old-version phone baseline was measured, so these are not a measured Android device
+before/after speedup. USB disconnected before Chrome, notification actions,
+orientation arrows, move-update, final crash checks and cleanup were finished.
+The temporary test-board app remained installed at disconnect. No human game
+was started.
+
+November 14 resumed Android device check: all 19 installed engines returned legal moves
+in the app's diagnostic position, zero failed/missing. Untouched cBurnett and
+Neo offline boards displayed primary/reply arrows. A g1-f3 tap through the
+overlay was accepted and arrows updated for Black. Notification Scan now
+re-read the board without ending sharing or requesting consent again, but
+revealed the turn-reset bug described above. A flipped board was located and
+arrows geometrically followed it; correct turn after refresh is not claimed.
+Chess.com's untouched public analysis board in regular Chrome was recognized
+and displayed arrows. A drag scrolled the mobile page instead of moving the
+piece, so Chrome move-following remains unverified in this physical session.
+No human match or invitation was created.
+
+Phone-screen Stop ended capture normally. Process exits were unchanged from
+the resumed baseline through the capture check. Final cleanup stopped
+BoardLens without opening another phone window, removed the temporary QA
+app, and confirmed MediaProjection was null and 1.8.7 remained installed.
+USB disconnected before a final post-cleanup process-exit query; no all-day
+stability claim is made. Saved model data and engine settings were retained.
+
+PREVIOUS CHECKS — ANDROID 1.8.6
+
+BOARDLENS ANDROID 1.8.6 / CODE 16 — NOVEMBER 13, 2026
+
+75 Android JVM/Robolectric tests pass with real Maia and Stockfish model/adapter
+checks enabled, zero skipped. Release lint and the complete .NET APK build pass.
+
+- Ongoing capture notification has independent Scan now (REFRESH) and Stop
+  commands. Refresh invalidates the old target, tracking, rejected-frame cache
+  and work, then re-runs recognition without ending sharing. Still captured
+  pixels remain available when Android sends no new frame until a move.
+- Rejected static screenshots are not repeatedly sent through every recognition
+  fallback. A new captured frame or Scan now permits another attempt.
+- Black captured content is detected cheaply. The app and notification describe
+  it as blank or capture-blocked, and automatic reading resumes when visible
+  board pixels return. Protected capture is not bypassed or reconstructed.
+- Loss of a board cancels its analysis generation and clears arrows. Results
+  from the old generation are ignored; unconfirmed geometry cannot show them.
+  Reacquisition forces a new search, even when the FEN has not changed.
+- Help has a readable, copyable diagnostics dialog. Its numeric reader details
+  omit the raw recognized-square symbols and contain no screenshot or position.
+
+The signed release APK upgraded 1.8.5 in an isolated Android 36 ARM64 emulator
+with package verification enabled. Its notification exposed Scan now and Stop.
+Pressing Scan now retained the same MediaProjection session and foreground
+service. An owned QA window marked FLAG_SECURE produced the blank/blocked
+notification. Switching to an ordinary offline board automatically restored
+recognition and arrows without Scan now, a piece move or a restart.
+
+In regular emulator Chrome, Chess.com’s public analysis page was recognized
+without moving a piece. A manual d2-d4 drag through BoardLens’s overlay was
+accepted by the analysis board; BoardLens inferred Black to move and updated to
+Black d7-d5 with White b1-c3 as a predicted reply. Boychesser at 0.3 s with
+evaluation off was selected. This proves that page/capture path in the emulator,
+not the reported Chrome failure on the Android device or every online-game layout.
+No match/invitation was created. Native signature and 16 KB alignment checks pass.
+
+The actual Android device was upgraded to 1.8.5 before USB disconnected. Its native bot
+opening screenshot reads correctly through the production reader on the host.
+The inspected Chess.com live-game window had FLAG_SECURE, and captured content
+was black. This is a concrete capture restriction, not a piece-classifier miss.
+Android 1.8.6 has not yet been installed on that phone,
+and the physical Chrome case remains unverified after USB disconnected.
+
+PREVIOUS CHECKS — ANDROID 1.8.5
+
+BOARDLENS ANDROID 1.8.5 / CODE 15 — NOVEMBER 13, 2026
+
+68 Android JVM/Robolectric tests pass with all real Maia exports and real
+Stockfish adapter checks enabled; zero skipped. Release lint and the complete
+.NET Android APK build pass. The APK retains the public signing certificate
+and all 16 ARM64 native libraries pass 16 KB load/ZIP alignment checks.
+
+First-board fixes:
+- Normalize tiny rectangle-rounding errors before square classification. The
+  gradient locator also tolerates rounding against the screen edge. Genuine
+  crops, rectangular false candidates, missing kings and low-confidence reads
+  remain rejected.
+- Copy actual RGBA pixels from each capture row without requiring trailing
+  padding after the last row. Reuse the packed-frame buffer on padded captures;
+  truncated frames are skipped so the next complete frame can recover.
+- Confirm two matching piece/orientation/geometry reads when square highlights
+  animate. Still frames retain the one-inference fast confirmation path.
+- Local diagnostics now report scanner stage, captured-frame/recognition counts,
+  dimensions and age of the last capture/confirmed read. No frames or board
+  positions are added to diagnostics.
+
+Regression checks cover full-width 1080x2340 phone layouts at five header
+positions, one-pixel bounds errors, both board orientations, an untouched
+opening, a blank splash followed by a board, switching page geometry without
+restarting, animated highlights, and buffers with offsets/pixel/row padding.
+
+A host layout that previously fell back to the context classifier completed
+in about 395 ms before and 24 ms after normalization in the targeted runs.
+Those are component timings on the Mac host, not Android device latency.
+
+The exact signed release APK upgraded Android 1.8.4 to 1.8.5 in an isolated
+Android 36 ARM64 Google Play emulator with package verification enabled. Live
+MediaProjection with Boychesser (0.3 s), evaluation off and touch-through arrows
+was checked on an independent offline fixture using the existing Chess.com Neo
+screenshot artwork. Arrows appeared on an untouched full-width opening board,
+followed a changed page height, and reappeared after a blank screen when an
+upright Black-at-bottom opening board and animated empty-square highlight were
+shown. The foreground service stayed active for this roughly six-minute check;
+no BoardLens crash was recorded. This is not a Chess.com account/friend-match
+or all-day background test. No match or invitation was created.
+
+The owner reports intermittent first acquisition and missing arrows in the
+Chess.com Play a Friend flow. No physical phone is connected over ADB during
+this update. The exact native/web friend-mode failure remains unverified;
+synthetic/offline results must not be presented as proof that it is resolved.
+Prior Android device checks apply to 1.8.4 only.
+
+HISTORICAL CHECKS — ANDROID 1.8.3
+
+BOARDLENS ANDROID 1.8.3 / CODE 13 — NOVEMBER 12, 2026
+
+51 Android JVM/Robolectric tests and release lint pass. New checks cover:
+- still-frame confirmation without a second neural inference;
+- animation invalidation and overlay-pixel masks;
+- independent move/evaluation timers, validation and persistence;
+- evaluation updates before the final Stockfish response;
+- reuse of Stockfish thread/hash options between positions;
+- touch-through evaluation-only overlays, safe placement and existing screen fixtures.
+The floating-bar component preview was visually inspected. These are host tests,
+not measurements of Android device latency.
+
+The scanner now reacts to new frames, with a 32 ms fallback and a 24 ms minimum
+interval between requests. A 960-pixel discovery pass precedes the existing full
+fallback. Tracked reads avoid global rediscovery during every animation.
+Recognition confidence, board plausibility and legal-position checks remain.
+Evaluation can be disabled entirely; this cancels queued work and unloads its
+separate engine. Hiding just the screen bar is a different display setting.
+
+LC0 0.32.1 is optional. The Android ARM64 Eigen CPU engine was compiled from
+included corresponding sources with 16 KB ELF alignment. Its 791556 network is
+an optional 18,648,209-byte, SHA-256-verified download from the official release.
+The Mac universal Accelerate build returned legal alternatives/evaluations in
+start, Black-to-move and promotion cases, and passed BoardLens's engine adapter.
+Windows uses the official pinned CPU OpenBLAS archive. Windows/Intel execution
+is checked separately by the release workflow; a Mac cross-build alone is not
+proof of execution on those systems.
+
+201 desktop tests passed locally with real Stockfish 19. The original four Maia
+exports/model hashes are unchanged; their prior 156 parity checks and the twelve
+Tiny bots' 72 legal/terminal host checks still describe those unchanged files.
+
+Android 1.7 recognized a live board during device testing, with slow acquisition.
+This new 1.8.3 APK has not yet been installed/timed on the Android device. Capture,
+overlay interaction and background longevity for this exact APK remain device
+checks. The owner chose to do phone installation/testing. Normal Android
+installation/security checks stay enabled.
+
+Existing synthetic discovery coverage: 160/186 exact, 26 rejected, zero accepted
+wrong. No universal theme/3D claim. Models → Test installed engines runs actual
+engine inference on the phone. No autoplay, Study or coaching features.
+
+MAIA STARTUP REGRESSION
+The production Java Maia adapter was run with the shipped ONNX Runtime 1.24.3
+version and actual weights on the Mac host: 52 reference positions across all
+four models passed. A service-level test reproduced and fixed idle-board
+startup after download/settings changes while the phone UI is visible. A UI
+test verifies explicit model selection without changing the evaluation engine.
+These three optional real-model tests run when BOARDLENS_MAIA_TEST_MODELS is set;
+ordinary CI can skip them when their large data files are absent. No new Android device
+Maia inference result is inferred from host tests. The user's exact phone error
+was requested; a separate device-specific failure may still need its message.
+
+FIRST BOARD AND ENGINE LATENCY
+Fixed a repeated stability-timer reset: if another capture arrived before the
+24 ms interval elapsed, the old path ran recognition again and replaced the
+candidate's timestamp. A stream of frequent frames could indefinitely postpone
+the first board. Pending candidates now keep their original timestamp until
+confirmed or invalidated by an actual pixel change. Confidence thresholds,
+plausibility checks and legal-position validation are unchanged.
+
+Production reader/service tests cover an untouched opening-board crop, a full
+screen retained without new captures, rapid confirmation polling, and a phone
+portrait fixture with both board orientations. The screenshot artwork comes
+from the existing desktop regression fixtures. These are host simulations.
+
+The move adapter streams from the first legal depth-one result while preserving
+the selected time/depth limit. The completed main move is published before
+optional continuation searches, even with early suggestions off. UCI thread,
+hash and strength options warm before the first position, and unchanged options
+skip a redundant ready handshake. Stockfish and evaluation remain independent.
+
+Six real Stockfish 19 searches through the production Java adapter on the Mac
+host showed early legal moves in roughly 1–14 ms and completion near the chosen
+500 ms budget. This measures engine-to-callback time, not phone recognition or
+compositor latency. Protocol tests hold bestmove/reply responses back to verify
+that early/root callbacks are not blocked and the selected budget is unchanged.
+A service regression also checks Only my color with Steady arrows: an invisible
+opponent line must not block the first available arrow for the user’s color.
+
+Single-move synchronization checks all legal single moves before two-move
+recovery. A separate same-JVM benchmark checked 246 successor positions: the
+old order took 63–217 ms total, the new order 3–13 ms total in four warmed runs.
+Those are component totals under host load, not Android device per-move latency.
+
+The optional real Stockfish test uses BOARDLENS_STOCKFISH_TEST_ENGINE. Together
+with the three real-Maia tests, it runs locally when its files are provided;
+CI without those external files skips seven tests in this version. The complete release APK
+includes all twelve Tiny bots and all on-phone engine adapters, preserves its
+release signing identity, and passes 16 KB native/ZIP alignment checks.
+
+MAIA PERFORMANCE AND TIME CONTROLS — ANDROID 1.8.3
+All four Maia move models show the same saved thinking-time control. For Maia,
+the budget starts before the main inference and limits additional reply passes.
+The first pass is always delivered, even if it exceeds the budget; an in-flight
+reply may finish after the deadline. No repeated identical inference, arbitrary
+wait, deeper-search claim or automatic engine/model switching is added. Maia
+evaluation still uses one value pass and has no fictitious search-time field.
+
+Selected Maia weights/vocabulary are prepared on the engine worker while the
+scanner starts. A bounded LRU cache keeps 64 immutable, complete move rankings,
+keyed by model, encoded rating, threads and full FEN. It supports different
+alternative counts and reuses positions previously evaluated for prediction.
+Close clears the cache and session. ONNX idle thread spinning is disabled to
+reduce contention with recognition/evaluation when multiple threads are used.
+The official model files, hashes, policy order and values are unchanged.
+
+The real-model before/after host benchmark used seven repeated searches per
+model with different alternative counts. Median repeat times on the Mac host:
+  Maia 2:      4.430 ms before; 0.007 ms with a cache hit
+  Maia 3 5M:   7.417 ms before; 0.008 ms with a cache hit
+  Maia 3 23M: 16.242 ms before; 0.006 ms with a cache hit
+  Maia 3 79M: 29.552 ms before; 0.007 ms with a cache hit
+These are cache-hit/component times, not new-position inference speedups or
+phone screen-to-arrow timing. First cold loads still took roughly 100–800 ms
+on this host; preparing them overlaps scanner startup rather than eliminating
+the work. Larger models still cost more for uncached positions.
+
+Tests verify all four timer fields save, preserve the independent evaluator
+and leave search-depth preferences intact. Controlled-clock real-model tests
+verify budget exhaustion still publishes the main move, extra budget permits
+replies, an actual predicted position needs no new inference, a changed rating
+misses the cache, and 70 different inputs retain at most 64 cache entries and
+release them on close. The 52 reference-position top-move checks and repeated-value checks still pass.
+No Android device timing or installation is inferred from these host results.

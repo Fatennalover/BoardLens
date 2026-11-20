@@ -1,0 +1,190 @@
+package app.boardlens.companion;
+
+import android.app.*;
+import android.content.*;
+import android.media.projection.*;
+import android.net.Uri;
+import android.os.*;
+import android.provider.Settings;
+import android.view.*;
+import android.widget.*;
+import java.util.*;
+
+/** The phone-analysis section of the companion; every recommendation runs on-device. */
+public class PhoneScreenActivity extends Activity {
+ private PhoneSettings settings;private MobileUi ui;private PhoneDashboard dashboard;
+ private boolean movesPage;
+ private ChessPosition lastOpeningPosition, lastMovePosition;
+ private String lastOpening="";
+ private TextView movesOpening,movesText;
+ private LinearLayout content;private boolean settingsPage,pendingOverlay,pendingFloatingOpen;
+ private final Map<String,View> controls=new HashMap<>();private TextView modelNote;private EditText moveTime;
+ @Override public void onCreate(Bundle saved){super.onCreate(saved);Diagnostics.install(this);settings=new PhoneSettings(this);ui=new MobileUi(this);pendingOverlay=saved!=null&&saved.getBoolean("overlay");pendingFloatingOpen=saved!=null&&saved.getBoolean("open_floating");getWindow().setStatusBarColor(ui.backdrop());getWindow().setNavigationBarColor(ui.backdrop());if(Build.VERSION.SDK_INT>=33)getOnBackInvokedDispatcher().registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,this::goBack);show();}
+ private void show(){settingsPage=false;movesPage=false;
+ ui=new MobileUi(this);
+ getWindow().setStatusBarColor(ui.backdrop());getWindow().setNavigationBarColor(ui.backdrop());
+ dashboard=new PhoneDashboard(this,new PhoneDashboard.Actions(){
+  public void start(){PhoneScreenActivity.this.start();}public void stop(){stopService(new Intent(PhoneScreenActivity.this,ScreenService.class));}public void hide(){moveTaskToBack(true);}
+  public void scan(){if(ScreenService.running)startService(new Intent(PhoneScreenActivity.this,ScreenService.class).setAction("REFRESH"));else PhoneScreenActivity.this.start();}
+  public String timeLabel(){EngineCatalog.Entry move=EngineCatalog.get(settings.engine());return "Move: "+settings.seconds()+" s"+(move.maia()?" budget":"")+" · Eval: "+(!settings.evaluationEnabled()?"Off":EngineCatalog.get(settings.evaluator()).maia()?"one pass":settings.evaluationSeconds()+" s");}
+  public void timeSettings(){showTiming();}
+  public String downloadLabel(){return ModelDownloads.running?ModelDownloads.message:"";}
+  public void moves(){showMoves();}
+  public void openFloatingMenu(){PhoneScreenActivity.this.openFloatingMenu();}
+  public void closeFloatingMenu(){
+    settings.p.edit().putBoolean(FloatingControls.ENABLED, false).apply();
+    refresh();
+  }
+  public void settings(){engineSettings();}public void help(){showHelp();}public void back(){finish();}
+  public boolean option(String key,boolean fallback){return settings.p.getBoolean(key,fallback);}public void option(String key,boolean value,boolean unused){settings.p.edit().putBoolean(key,value).apply();refresh();}
+ });MobileUi.inset(this,dashboard.root);setContentView(dashboard.root);refresh();}
+ void showTiming(){
+  LinearLayout root=ui.column();root.setPadding(ui.dp(24),ui.dp(12),ui.dp(24),0);EngineCatalog.Entry move=EngineCatalog.get(settings.engine()),eval=EngineCatalog.get(settings.evaluator());
+  EditText moveField=timeInput(root,move.maia()?"Maia thinking budget · seconds":"Move time · seconds",settings.seconds(),"move_seconds"),evalField=!settings.evaluationEnabled()||eval.maia()?null:timeInput(root,"Evaluation time · seconds",settings.evaluationSeconds(),"eval_seconds");
+  if(move.maia())root.addView(ui.text("First move appears when ready. This budget limits extra replies; a running pass may finish after it. Maia does not deepen its main prediction.",14,MobileUi.MUTED,false));
+  if(!settings.evaluationEnabled())root.addView(ui.text("Evaluation is off. Enable it in Settings to use its timer.",14,MobileUi.MUTED,false));
+  else if(eval.maia())root.addView(ui.text("Maia evaluation also uses one pass.",14,MobileUi.MUTED,false));
+  if(settings.mode().equals("Depth")&&!move.tiny()&&!move.maia())root.addView(ui.text("Saving a move time uses Time + depth, stopping at the first limit.",13,MobileUi.MUTED,false));
+  AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Thinking times").setView(root).setPositiveButton("Save",null).setNegativeButton("Cancel",null).create();
+  dialog.setOnShowListener(ignored->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+   Float m=readTime(moveField,.05f),e=readTime(evalField,.03f);if((moveField!=null&&m==null)||(evalField!=null&&e==null))return;
+   android.content.SharedPreferences.Editor edit=settings.p.edit();if(m!=null){edit.putFloat("seconds",m);if(settings.mode().equals("Depth")&&!move.tiny()&&!move.maia())edit.putString("mode","Time + depth");}if(e!=null)edit.putFloat("evaluation_seconds",e);edit.apply();dialog.dismiss();refresh();Toast.makeText(this,"Thinking times saved",Toast.LENGTH_SHORT).show();
+  }));dialog.show();
+ }
+ private EditText timeInput(LinearLayout root,String label,float value,String tag){root.addView(ui.text(label,14,MobileUi.MUTED,false));EditText field=new EditText(this);field.setTag(tag);field.setTextColor(MobileUi.FG);field.setInputType(8194);field.setSingleLine();field.setText(String.valueOf(value));root.addView(field,new LinearLayout.LayoutParams(-1,ui.dp(52)));ui.gap(root,12);return field;}
+ private Float readTime(EditText field,float low){if(field==null)return null;try{float value=Float.parseFloat(field.getText().toString());if(!Float.isFinite(value)||value<low||value>30)throw new Exception();return value;}catch(Exception error){field.setError(low+" to 30 seconds");return null;}}
+ private void showHelp(){
+  String[] sections={"Start & background scanning","Engines & downloads","Thinking & predictions","Arrows & your color","Permissions & troubleshooting"};
+  String[] help={
+   "Press Start, approve sharing your entire screen, then press Home or Open another app. BoardLens keeps scanning while its foreground-service notification is present, even when its interface is closed. Stop in the app or notification ends the session. Keep all 64 squares visible. Reading pauses on BoardLens’s own screens to avoid reading its preview.",
+   "All phone-screen engines run on this device. Stockfish and Flounder share the Stockfish data file. LC0 is an optional CPU engine with a separate 19 MB network. Maia 2 and Maia 3 5M/23M/79M are optional data-model downloads. Original Tiny bots are built into the complete APK. Competition ratings are reference results, not guaranteed phone ratings. The Computer companion section remains available for controlling desktop boards, but is not needed for phone analysis. Downloads are checksum-verified and keep working offline. Recommendation and evaluation engines are independent. Maia evaluation is a human expected score, not Stockfish centipawns or a win probability.",
+   "Use the main screen’s timing button for move and evaluation seconds. Evaluation Off stops and unloads its separate engine; hiding Screen evaluation only hides the floating display. Stockfish accepts time, depth, or whichever limit is reached first. LC0 also accepts UCI time/depth limits, but its tree depth is different from Stockfish. Flounder uses Stockfish with an Elo limit. Tiny bots control their own depth; think time supplies their clock budget. All four Maia move models have a thinking-time budget. Their first prediction appears as soon as it finishes; the remaining time limits optional reply calculations. The first pass is allowed to finish even if it exceeds the budget, and a running reply pass may also finish after it. More time permits more of the selected continuation, not a deeper or stronger main Maia prediction. With Predict replies off, Maia makes just one pass. Maia evaluation is also one pass, so it has no search timer. Maia 2 uses rating buckets from below 1100 to 2000 and above; Maia 3 accepts a wider target rating. Show moves while thinking shows early results. Predict replies extends the chosen engine’s line. Three plies means your move, an opponent reply, then your response. Maia keeps a bounded cache of move rankings for recognized and predicted positions; changing rating, model or position uses the corresponding separate result.",
+   "Screen evaluation appears beside or above the board, or in the position you choose. The score always uses White’s perspective. Its time and depth limits are independent from the move engine. The bar updates while Stockfish is thinking. Drag the evaluation bar itself to move it. Tap the floating BoardLens logo to open the menu. Drag its header to move it and its lower-right grip to resize it. The minus returns to the logo. Close removes both. Open the menu again from the Phone screen page or the notification. Screen arrows pass taps through to the chess app. Only my color uses the side at the bottom of the recognized board and waits during the opponent’s turn. Predicted future responses are text, not current-move arrows. Steady arrows reduces changes during thinking. Lock move keeps the first displayed suggestion for the position while evaluation continues. A board change, settings change or Scan now releases the lock. Tiny bots provide one recommendation per search. Other engines support multiple alternatives. Predictions describe a possible continuation, not a promise that the opponent will choose it.",
+   "Android asks for screen-sharing approval for each new capture session. Display over other apps is needed for the menu, arrows and evaluation bar and stays allowed until revoked. Normal analysis needs no Accessibility service. Android may stop sharing when you lock the device, revoke access or force-stop the app. Protected screens cannot be read. Scan now discards the current target and starts a fresh search. Unusual themes, hidden pieces and unsupported 3D camera angles can remain unreadable. Settings save automatically."
+  };
+  new AlertDialog.Builder(this).setTitle("Phone analysis help").setItems(sections,(d,which)->new AlertDialog.Builder(this).setTitle(sections[which]).setMessage(help[which]).setPositiveButton("Got it",null).show()).setNeutralButton("Diagnostics",(d,w)->Diagnostics.show(this)).setNegativeButton("Close",null).show();
+ }
+ private void group(LinearLayout root,String title){ui.gap(root,14);content=ui.card();content.addView(ui.text(title,18,MobileUi.FG,true));ui.gap(content,12);root.addView(content);}
+ private void choice(String title,String key,String[] labels,int selected,java.util.function.IntConsumer save){View row=ui.choice(title,labels,selected,index->{save.accept(index);refreshLimits();});controls.put(key,row);content.addView(row);ui.gap(content,10);}
+ private void engine(String title,String key,boolean evaluation){List<EngineCatalog.Entry> list=new ArrayList<>();for(var entry:EngineCatalog.ALL)if((!evaluation||!entry.tiny())&&EngineCatalog.ready(this,entry.id()))list.add(entry);String current=evaluation?settings.evaluator():settings.engine();if(list.isEmpty()){content.addView(ui.text("Install an engine in Models to select it here",14,MobileUi.MUTED,false));return;}String[] names=new String[list.size()];int selected=0;for(int i=0;i<list.size();i++){var e=list.get(i);names[i]=e.name()+(EngineCatalog.ready(this,e.id())?"":" · download");if(e.id().equals(current)||current.equals("maia3")&&e.id().equals("maia3-5m"))selected=i;}
+  choice(title,key,names,selected,i->settings.p.edit().putString(key,list.get(i).id()).apply());
+  content.addView(ui.button(evaluation?"Evaluator details":"Engine details",false,()->
+      EngineProfiles.show(this,EngineCatalog.get(evaluation?settings.evaluator():settings.engine()))),
+      new LinearLayout.LayoutParams(-1,ui.dp(42)));
+  ui.gap(content,8);
+ }
+ private void number(String title,String key,int min,int max,int value){LinearLayout row=ui.column();row.addView(ui.text(title,14,MobileUi.MUTED,false));ui.gap(row,6);row.addView(new MobileUi.Stepper(ui,min,max,value,key.equals("rating")?50:1,n->settings.p.edit().putInt(key,n).apply()),new LinearLayout.LayoutParams(-1,ui.dp(48)));controls.put(key,row);content.addView(row);ui.gap(content,12);}
+ private void seconds(String title,String key,float value,float low,float high){LinearLayout row=ui.column();row.addView(ui.text(title,14,MobileUi.MUTED,false));EditText field=new EditText(this);field.setSingleLine();field.setTextColor(MobileUi.FG);field.setInputType(8194);field.setText(String.valueOf(value));field.setPadding(ui.dp(12),0,ui.dp(12),0);field.setBackground(ui.shape(MobileUi.BORDER,12));LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,ui.dp(48));p.topMargin=ui.dp(6);row.addView(field,p);controls.put(key,row);if(key.equals("seconds"))moveTime=field;content.addView(row);ui.gap(content,12);
+  field.addTextChangedListener(new android.text.TextWatcher(){public void beforeTextChanged(CharSequence s,int a,int b,int c){}public void afterTextChanged(android.text.Editable s){}public void onTextChanged(CharSequence s,int a,int b,int c){try{float n=Float.parseFloat(s.toString());if(!Float.isFinite(n)||n<low||n>high)throw new Exception();settings.p.edit().putFloat(key,n).apply();field.setError(null);}catch(Exception e){field.setError(low+" to "+high+" seconds");}}});
+ }
+ private void toggle(String title,String detail,String key,boolean fallback){content.addView(ui.toggle(title,detail,settings.p.getBoolean(key,fallback),value->{settings.p.edit().putBoolean(key,value).apply();refreshLimits();}));}
+ private void engineSettings(){settingsPage=true;movesPage=false;controls.clear();ScrollView scroll=new ScrollView(this);scroll.setBackgroundColor(ui.backdrop());LinearLayout root=ui.column();root.setPadding(ui.dp(20),ui.dp(12),ui.dp(20),ui.dp(24));scroll.addView(root);root.addView(ui.header("Phone settings","Back to board",this::show,this::showHelp));
+  group(root,"Engines");engine("Move engine","engine",false);content.addView(ui.button("Models & downloads",false,()->startActivity(new Intent(this,ModelsActivity.class))),new LinearLayout.LayoutParams(-1,ui.dp(48)));ui.gap(content,8);modelNote=ui.text("",13,MobileUi.MUTED,false);content.addView(modelNote);
+  group(root,"Move thinking");String[] modes=ArrowEngines.MODES.toArray(new String[0]);choice("Stop at","mode",modes,Arrays.asList(modes).indexOf(settings.mode()),i->settings.p.edit().putString("mode",modes[i]).apply());seconds("Thinking time · seconds","seconds",settings.seconds(),.05f,30f);number("Search depth","depth",1,60,settings.depth());number("Target rating","rating",600,2600,settings.rating());number("Stockfish skill","skill",0,20,settings.skill());number("CPU threads","threads",1,Math.max(1,Math.min(8,Runtime.getRuntime().availableProcessors())),settings.threads());
+  group(root,"Evaluation");toggle("Evaluate position","Off stops the engine and saves power","evaluation_enabled",true);engine("Evaluation engine","evaluator",true);seconds("Evaluation time · seconds","evaluation_seconds",settings.evaluationSeconds(),.03f,30f);number("Evaluation depth limit","evaluation_depth",1,40,settings.evaluationDepth());
+  String[] styles={"Balanced","Aggressive","Defensive","Human-like"};choice("Playing style","style",styles,Math.max(0,Arrays.asList(styles).indexOf(settings.style())),i->settings.p.edit().putString("style",styles[i]).apply());
+  group(root,"Suggestions");content.addView(ui.button("Arrow engines…",false,()->ArrowEngineMenu.edit(this,settings)),new LinearLayout.LayoutParams(-1,ui.dp(48)));number("Recommended moves","moves",1,5,settings.moves());toggle("Show moves while thinking","Show the first result early","early",true);toggle("Predict replies","Opponent move, then your response","predict",true);number("Prediction length · plies","prediction_plies",1,12,settings.predictionPlies());seconds("Reply time budget","prediction_seconds",settings.predictionSeconds(),.1f,60f);toggle("Steady arrows","Reduce changes during thinking","steady",true);toggle("Lock move","Keep the first suggestion for this position","lock_move",false);
+  group(root,"On-screen display");toggle("Floating menu","Show the BoardLens logo over other apps",FloatingControls.ENABLED,true);toggle("Screen evaluation","Hide only · evaluation keeps running","screen_evaluation",true);String[] barPositions={"Auto","Top","Bottom","Left","Right","Custom"};choice("Eval bar · drag it on screen","evaluation_position",barPositions,Arrays.asList(barPositions).indexOf(settings.evaluationPosition()),i->settings.p.edit().putString("evaluation_position",barPositions[i]).apply());toggle("Screen arrows","Draw over the chess app","arrows",true);toggle("Only my color","Use the side at the bottom","onlyMine",false);String[] orientation={"Auto","White at bottom","Black at bottom"},turn={"Auto","White","Black"};choice("Orientation","orientation",orientation,Arrays.asList(orientation).indexOf(settings.orientation()),i->settings.p.edit().putString("orientation",orientation[i]).apply());choice("Side to move","turn",turn,Arrays.asList(turn).indexOf(settings.turn()),i->settings.p.edit().putString("turn",turn[i]).apply());
+  ui.gap(root,16);root.addView(ui.text("Saved automatically",14,MobileUi.MUTED,false));MobileUi.inset(this,scroll);setContentView(scroll);refreshLimits();
+ }
+ private void refreshLimits(){
+  EngineCatalog.Entry e=EngineCatalog.get(settings.engine());boolean search=!e.policy()&&!e.tiny();
+  visible("mode",search);visible("depth",search&&!settings.mode().equals("Time"));visible("seconds",true);
+  if(moveTime!=null){moveTime.setEnabled(!search||!settings.mode().equals("Depth"));moveTime.setAlpha(moveTime.isEnabled()?1f:.45f);}
+  visible("rating",e.maia()||e.id().equals("flounder"));visible("skill",e.id().equals("stockfish"));visible("threads",!e.tiny());visible("moves",!e.tiny());
+  visible("evaluation_seconds",settings.evaluationEnabled()&&!EngineCatalog.get(settings.evaluator()).maia());visible("evaluation_depth",settings.evaluationEnabled()&&!EngineCatalog.get(settings.evaluator()).maia());
+  visible("style",e.kind().equals("stockfish"));visible("evaluation_position",settings.screenEvaluation());visible("prediction_plies",settings.predict());visible("prediction_seconds",settings.predict()&&!e.maia());
+  if(modelNote!=null)modelNote.setText(e.maia()?(settings.predict()?"Maia: first move when ready; time limits extra reply calculations.":"Maia uses one pass. Predict replies is off."):e.tiny()?"Original bot · one move per search · its depth is automatic.":settings.mode().equals("Depth")?"Depth mode uses the depth limit. Select Time or Time + depth to use seconds.":"Move and evaluation time limits are independent.");
+ }
+ private void visible(String key,boolean show){View view=controls.get(key);if(view!=null)view.setVisibility(show?View.VISIBLE:View.GONE);}
+ private void openFloatingMenu(){
+  settings.p.edit().putBoolean(FloatingControls.ENABLED, true).apply();
+  pendingFloatingOpen = true;
+  if(!ScreenService.running){
+    start();
+  }else if(Settings.canDrawOverlays(this)){
+    showFloatingMenuOnBoard();
+  }else{
+    pendingOverlay = true;
+    startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:"+getPackageName())));
+  }
+ }
+ private void showFloatingMenuOnBoard(){
+  pendingFloatingOpen = false;
+  ScreenService.openFloatingMenu();
+  moveTaskToBack(true);
+ }
+ private void start(){
+  if(ScreenService.running){if(pendingFloatingOpen)showFloatingMenuOnBoard();else moveTaskToBack(true);return;}
+  if(Build.VERSION.SDK_INT<29){pendingFloatingOpen=false;new AlertDialog.Builder(this).setMessage("Phone screen analysis requires Android 10 or later. Computer companion still works here.").setPositiveButton("OK",null).show();return;}
+  if(!EngineCatalog.ready(this,settings.engine())){pendingFloatingOpen=false;Toast.makeText(this,"Install "+EngineCatalog.get(settings.engine()).name()+" first",Toast.LENGTH_LONG).show();startActivity(new Intent(this,ModelsActivity.class));return;}
+  if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED&&!settings.p.getBoolean("notificationAsked",false)){settings.p.edit().putBoolean("notificationAsked",true).apply();requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},9);return;}
+  if((settings.p.getBoolean(FloatingControls.ENABLED,true)||settings.arrows()||settings.screenEvaluation()&&settings.evaluationEnabled())&&!Settings.canDrawOverlays(this)){
+   new AlertDialog.Builder(this).setTitle("Allow on-screen display").setMessage("Enable Display over other apps for BoardLens. This allows floating settings, arrows, and the evaluation bar. Touches outside the controls still go to the board.").setNegativeButton("Without overlay",(d,w)->{pendingFloatingOpen=false;settings.p.edit().putBoolean("arrows",false).putBoolean("screen_evaluation",false).putBoolean(FloatingControls.ENABLED,false).apply();requestCapture();}).setPositiveButton("Open settings",(d,w)->{pendingOverlay=true;startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:"+getPackageName())));}).setOnCancelListener(d->pendingFloatingOpen=false).show();return;
+  }requestCapture();
+ }
+ private void requestCapture(){MediaProjectionManager manager=getSystemService(MediaProjectionManager.class);Intent consent=Build.VERSION.SDK_INT>=34?manager.createScreenCaptureIntent(MediaProjectionConfig.createConfigForDefaultDisplay()):manager.createScreenCaptureIntent();startActivityForResult(consent,42);}
+ @Override public void onRequestPermissionsResult(int request,String[] names,int[] results){super.onRequestPermissionsResult(request,names,results);if(request==9)start();}
+ @Override protected void onActivityResult(int request,int result,Intent data){
+  super.onActivityResult(request,result,data);
+  if(request!=42)return;
+  boolean open = pendingFloatingOpen;
+  pendingFloatingOpen = false;
+  if(result==RESULT_OK&&data!=null){
+    startForegroundService(new Intent(this,ScreenService.class).putExtra("consent",data)
+        .putExtra(ScreenService.OPEN_FLOATING_EXTRA, open));
+    moveTaskToBack(true);
+  }else Toast.makeText(this,"Screen sharing was not started",Toast.LENGTH_SHORT).show();
+ }
+ private void showMoves(){
+  movesPage=true;settingsPage=false;lastMovePosition=null;
+  ScrollView scroll=new ScrollView(this);
+  LinearLayout page=ui.page(scroll);
+  page.addView(ui.header("Moves","Back to board",this::show,null));
+  ui.gap(page,12);
+  LinearLayout card=ui.card();
+  movesOpening=ui.text("",15,ui.accent(),true);
+  card.addView(movesOpening);ui.gap(card,12);
+  movesText=ui.text("No moves tracked yet.",17,MobileUi.FG,false);
+  movesText.setLineSpacing(ui.dp(6),1f);
+  card.addView(movesText);page.addView(card);
+  MobileUi.inset(this,scroll);setContentView(scroll);
+  refresh();
+ }
+ private void refresh(){
+  if(isFinishing())return;
+  ChessPosition position=ScreenService.trackedPosition;
+  if(position!=lastOpeningPosition){
+    if(position!=null)OpeningNames.load(this);
+    lastOpening=OpeningNames.find(position);lastOpeningPosition=position;
+  }
+  if(movesPage){
+    movesOpening.setText(lastOpening.isBlank()?"Opening unavailable":lastOpening);
+    if(position!=lastMovePosition){
+      String moves=OpeningNames.moves(position);
+      movesText.setText(moves.isBlank()?"No moves tracked yet.":moves);
+      lastMovePosition=position;
+    }
+  }else if(!settingsPage&&dashboard!=null){
+    dashboard.bar.setVisibility(settings.evaluationEnabled()&&ScreenService.hasEvaluationValue?View.VISIBLE:View.GONE);
+    dashboard.engine.setText(EngineCatalog.get(settings.engine()).name()+" · on this phone");
+    dashboard.setPosition(position,ScreenService.trackedWhiteBottom,lastOpening);
+    dashboard.render(ScreenService.running,ScreenService.status,ScreenService.suggestion,
+                     ScreenService.evaluation,ScreenService.whiteShare,ScreenService.preview);
+  }
+ }
+ @Override protected void onStart(){super.onStart();PhoneUiVisibility.start(this);}
+ @Override protected void onStop(){PhoneUiVisibility.stop(this);super.onStop();}
+ @Override protected void onResume(){super.onResume();ScreenService.listener=this::refresh;if(pendingOverlay){
+  pendingOverlay=false;
+  if(Settings.canDrawOverlays(this)){
+    if(pendingFloatingOpen && ScreenService.running)showFloatingMenuOnBoard();
+    else if(!ScreenService.running)requestCapture();
+  }else pendingFloatingOpen=false;
+ }if(settingsPage)engineSettings();else refresh();}
+ @Override protected void onPause(){ScreenService.listener=null;super.onPause();}
+ @Override protected void onSaveInstanceState(Bundle out){out.putBoolean("overlay",pendingOverlay);out.putBoolean("open_floating",pendingFloatingOpen);super.onSaveInstanceState(out);}
+ private void goBack(){if(settingsPage||movesPage)show();else finish();}
+ @Override @android.annotation.SuppressLint("GestureBackNavigation")
+  public void onBackPressed(){goBack();}
+}

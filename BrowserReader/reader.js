@@ -1,0 +1,153 @@
+// Read board data in the page world and play moves on supported practice boards.
+(()=>{
+ const names={pawn:'p',knight:'n',bishop:'b',rook:'r',queen:'q',king:'k'};
+ function fenOf(map,turn='w'){
+  let rows=[];for(let rank=8;rank;rank--){let row='',empty=0;for(let f=0;f<8;f++){const p=map[String.fromCharCode(97+f)+rank];if(!p)empty++;else{if(empty)row+=empty;empty=0;row+=p}}if(empty)row+=empty;rows.push(row)}return rows.join('/')+' '+turn+' - - 0 1';
+ }
+ const boardIds=new WeakMap();
+ function boardId(board,owner){
+  let target=boardIds.get(board);
+  if(target?.owner!==owner){
+   target={owner,id:crypto.randomUUID().replaceAll('-','')};
+   boardIds.set(board,target);
+  }
+  return target.id;
+ }
+ function lichessAnalysis(board){
+  if(location.hostname!=='lichess.org'||!/^\/analysis(?:\/standard)?(?:\/|$)/.test(location.pathname))return null;
+  if(board!==document.querySelector('.analyse__board cg-board'))return null;
+  const api=window.lichess?.analysis,ground=window.lichess?.chessground?.(),game=api?.data?.()?.game;
+  if(game?.id!=='synthetic'||game.variant?.key!=='standard'||typeof api.playUci!=='function'||!ground)return null;
+  const input=[...document.querySelectorAll('.analyse__underboard .copyables .pair')]
+   .find(pair=>pair.querySelector('label')?.textContent.trim()==='FEN')?.querySelector('input.copyable');
+  if(!input||document.activeElement===input)return null;
+  const fen=input.value.trim(),fields=fen.split(/\s+/);
+  if(fields.length!==6||fields[0]!==ground.getFen()||fields[1]!==ground.state.turnColor?.[0])return null;
+  return {fen,kind:"analysis",api,ground};
+ }
+ function computerGame(board){
+  if(location.hostname!=='www.chess.com'||!/^\/play\/computer(?:\/[A-Za-z0-9_-]+)?\/?$/.test(location.pathname))return null;
+  if(board?.localName!=='wc-chess-board')return null;
+  const game=board.game,options=game?.getOptions?.();
+  if(options?.id!=='play-computer'||game.getVariant?.()!=='chess'||game.getMode?.()?.name!=='playing'||
+     !game.isAtEndOfLine?.()||game.isGameOver?.()||typeof game.move!=='function')return null;
+  const side=game.getPlayingAs?.(),fen=game.getFEN?.();
+  if((side!==1&&side!==2)||typeof fen!=='string')return null;
+  return {fen,kind:'computer-bot',game,white:side===1};
+ }
+ function practicePosition(board){
+  return computerGame(board)||lichessAnalysis(board);
+ }
+ function canEnterMove(practice,move){
+  const from=move.slice(0,2),to=move.slice(2,4);
+  if(practice.kind==='computer-bot'){
+   const game=practice.game,turn=practice.fen.split(' ')[1];
+   if(turn!==(practice.white?'w':'b')||game.getOptions().enabled!==true||
+      game.isDragging?.()||!game.getMode().isAllowedToMove?.(from))return false;
+   const input={from,to,userGenerated:true};
+   if(move.length===5)input.promotion=move[4];
+   if(!game.isLegalMove(input))return false;
+   return ()=>game.move(input);
+  }
+  const {api,ground}=practice;
+  const piece=ground.state.pieces.get(from),valid=ground.state.movable.dests?.get(from)||[];
+  if(piece?.color!==ground.state.turnColor)return false;
+  // Lichess may list castling as king-to-rook while UCI uses king-to-destination.
+  const castle={e1g1:'h1',e1c1:'a1',e8g8:'h8',e8c8:'a8'}[move];
+  if(!valid.includes(to)&&!(piece.role==='king'&&castle&&valid.includes(castle)))return false;
+  return ()=>api.playUci(move);
+ }
+ let lastCommand;
+ function playPractice(command){
+  if(!command||typeof command.page!=='string'||!command.id||command.id===lastCommand||
+     !Number.isFinite(command.expires)||command.expires<Date.now()||
+     !/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(command.move)||
+     document.visibilityState!=='visible'||!document.hasFocus())return false;
+  if(document.querySelector('dialog[open]'))return false;
+  const selector=location.hostname==='lichess.org'?'.analyse__board cg-board':'wc-chess-board';
+  const target=[...document.querySelectorAll(selector)].find(board=>{
+   if(boardIds.get(board)?.id!==command.page||!fullyVisible(board.getBoundingClientRect()))return false;
+   const practice=practicePosition(board);
+   return practice&&practice.fen===command.fen&&boardIds.get(board).owner===(practice.game||practice.api);
+  });
+  if(!target)return false;
+  const submit=canEnterMove(practicePosition(target),command.move);
+  if(!submit)return false;
+  lastCommand=command.id;
+  submit();
+  return true;
+ }
+ window.boardLensTryPracticeMove=playPractice;
+ window.addEventListener('message',event=>{
+  if(event.source===window&&event.origin===location.origin&&event.data?.boardlensPlay)
+   playPractice(event.data.boardlensPlay);
+ });
+ function fullyVisible(rect){
+  return rect.width>=150&&rect.height>=150&&rect.left>=0&&rect.top>=0&&rect.right<=innerWidth+1&&rect.bottom<=innerHeight+1;
+ }
+ function dashboard(){
+  const path=location.pathname.replace(/\/$/,'')||'/';
+  return path==='/'||(location.hostname==='www.chess.com'&&path==='/home');
+ }
+ function read(){
+  if(document.visibilityState!=='visible'||dashboard())return [];
+  return [...document.querySelectorAll('wc-chess-board,cg-board')].filter(e=>fullyVisible(e.getBoundingClientRect())).slice(0,3).map((e,index)=>{
+   try {
+   const rect=e.getBoundingClientRect(),g=e.game;let fen,turnHint=null,bottom=true,points={},exact=false,is3d=!!e.querySelector('canvas');
+   const practice=practicePosition(e);
+   if(practice?.kind==='analysis'){
+    fen=practice.fen;exact=true;bottom=practice.ground.state.orientation==='white';
+   }else if(g&&typeof g.getFEN==='function'){
+    fen=g.getFEN();exact=true;bottom=!(g.getOptions?.()?.flipped??e.closest('.orientation-black'));
+    const renderer=g.getRenderer?.(),canvas=e.querySelector('canvas');
+    if(is3d&&renderer?.getCoordsFromSquare&&canvas){
+     for(let rank=1;rank<=8;rank++)for(let f=0;f<8;f++){const square=String.fromCharCode(97+f)+rank,p=renderer.getCoordsFromSquare(square);points[square]=[p.x/canvas.width,p.y/canvas.height]}
+     bottom=points.a1[1]>points.a8[1];
+    }
+   }else{
+    let map={};bottom=!e.closest('.orientation-black');
+    for(const piece of e.querySelectorAll('piece')){
+     const classes=[...piece.classList],name=Object.keys(names).find(n=>classes.includes(n));if(!name||classes.includes('ghost'))continue;
+     const r=piece.getBoundingClientRect();let f=Math.round((r.left-rect.left)/(rect.width/8)),row=Math.round((r.top-rect.top)/(rect.height/8));if(f<0||f>7||row<0||row>7)continue;
+     const square=String.fromCharCode(97+(bottom?f:7-f))+(bottom?8-row:row+1),p=names[name];map[square]=classes.includes('white')?p.toUpperCase():p;
+    }
+    const wrap=e.closest('.cg-wrap')?.parentElement?.parentElement;
+    const runningTop=wrap?.querySelector('.rclock-top.running'),runningBottom=wrap?.querySelector('.rclock-bottom.running');
+    if(runningTop)turnHint=!bottom;else if(runningBottom)turnHint=bottom;
+    if(turnHint===null){
+     const last=[...e.querySelectorAll('square.last-move')];
+     if(last.length===2){
+      const occupied=last.map(square=>{
+       const r=square.getBoundingClientRect(),f=Math.round((r.left-rect.left)/(rect.width/8)),row=Math.round((r.top-rect.top)/(rect.height/8));
+       return map[String.fromCharCode(97+(bottom?f:7-f))+(bottom?8-row:row+1)];
+      }).filter(Boolean);
+      if(occupied.length===1)turnHint=occupied[0]===occupied[0].toLowerCase();
+     }
+    }
+    fen=fenOf(map,turnHint===false?'b':'w');
+   }
+   if(!fen)return null;
+   if(!Object.keys(points).length)for(let rank=1;rank<=8;rank++)for(let f=0;f<8;f++)points[String.fromCharCode(97+f)+rank]=[(bottom?f+.5:7.5-f)/8,(bottom?8.5-rank:rank-.5)/8];
+   const scope=e.closest('.round__app,.board-layout-main,.board-layout-component')||e.parentElement;
+   const resultNode=scope?.querySelector('.game-over-component,.game-over-header-title,.game-over-modal-title,.result-wrap .status');
+   const resultText=resultNode&&resultNode.getClientRects().length?resultNode.textContent.trim().slice(0,180):null;
+   const finished=exact&&g?.isAtEndOfLine?.()&&g.isGameOver?.();
+   const game_result=resultText||(finished?'Game over':null);
+   const id=boardId(e,practice?.game||practice?.api||g||location.pathname);
+   const sans=exact?g?.getHistorySANs?.():null;
+   const moves=Array.isArray(sans)&&sans.length<=600?sans:undefined;
+   return {game_result,fen,exact,board_id:id,moves,practice_id:practice?boardId(e,practice.game||practice.api):null,practice_kind:practice?.kind,practice_white:practice?.white,practice_focused:!!practice&&document.hasFocus(),turn_hint:turnHint,white_bottom:bottom,index,points,rect:{x:rect.x,y:rect.y,width:rect.width,height:rect.height}};
+   } catch {return null}
+  }).filter(Boolean);
+ }
+ function publishBoard(){
+  let interval=55;
+  try{
+   const visible=document.visibilityState==='visible',boards=visible?read():[];
+   if(boards.some(board=>board.practice_focused))interval=25;
+   window.postMessage({boardlensRead:true,dashboard:visible&&dashboard(),boards},location.origin);
+  }catch{}
+  setTimeout(publishBoard,interval);
+ }
+ publishBoard();
+})();

@@ -1,0 +1,247 @@
+{
+  "allie-2.0": {
+    "description": "Allie predicts human move choices from the sequence of moves played in a game. Use a position with recorded moves. The local model requires substantial storage and memory.",
+    "rating": "Depends on the model and rating input",
+    "source": "https://arxiv.org/abs/2410.03893",
+    "strength": "History-based human prediction",
+    "style": "Human-trained"
+  },
+  "allie-2.1": {
+    "description": "Allie predicts human move choices from the sequence of moves played in a game. Use a position with recorded moves. The local model requires substantial storage and memory.",
+    "rating": "Depends on the model and rating input",
+    "source": "https://arxiv.org/abs/2410.03893",
+    "strength": "History-based human prediction",
+    "style": "Human-trained"
+  },
+  "custom": {
+    "description": "Runs an executable you supply that supports UCI, the standard chess engine protocol. Available features depend on that executable.",
+    "rating": "See the engine’s own rating or settings",
+    "strength": "Depends on the executable",
+    "style": "Depends on the engine"
+  },
+  "flounder": {
+    "description": "Uses Stockfish to compare moves, then samples from its candidates to vary the quality of play. The target is approximate and its choices come from a mistake model.",
+    "rating": "600–2400 Elo target",
+    "source": "https://github.com/bhale22/blundermind",
+    "strength": "Adjustable practice strength",
+    "style": "Simulated mistakes"
+  },
+  "gaia": {
+    "description": "A UCI chess engine written in Rust with a neural evaluation network. It searches for strong moves and can use an approximate optional strength limit.",
+    "rating": "580–2640 Elo limit in BoardLens",
+    "source": "https://github.com/jromang/gaiachess",
+    "strength": "Strong analysis",
+    "style": "Computer search"
+  },
+  "lc0": {
+    "description": "Leela Chess Zero uses a network trained by playing itself. It explores positions to choose strong moves. A CPU run or smaller network can change its speed and strength.",
+    "rating": "Strength varies with the network, hardware and search time",
+    "source": "https://lczero.org/",
+    "strength": "Strong analysis",
+    "style": "Self-play neural search"
+  },
+  "maia1-1100": {
+    "description": "Uses a network trained on human games near 1100 Elo. The weights fix the rating band. The LC0 runtime runs the model with a one-node search.",
+    "rating": "1100 human training band",
+    "source": "https://github.com/CSSLab/maia-chess",
+    "strength": "Fixed-level human prediction",
+    "style": "Human-trained"
+  },
+  "maia1-1200": {
+    "description": "Uses a network trained on human games near 1200 Elo. The weights fix the rating band. The LC0 runtime runs the model with a one-node search.",
+    "rating": "1200 human training band",
+    "source": "https://github.com/CSSLab/maia-chess",
+    "strength": "Fixed-level human prediction",
+    "style": "Human-trained"
+  },
+  "maia1-1300": {
+    "description": "Uses a network trained on human games near 1300 Elo. The weights fix the rating band. The LC0 runtime runs the model with a one-node search.",
+    "rating": "1300 human training band",
+    "source": "https://github.com/CSSLab/maia-chess",
+    "strength": "Fixed-level human prediction",
+    "style": "Human-trained"
+  },
+  "maia1-1400": {
+    "description": "Uses a network trained on human games near 1400 Elo. The weights fix the rating band. The LC0 runtime runs the model with a one-node search.",
+    "rating": "1400 human training band",
+    "source": "https://github.com/CSSLab/maia-chess",
+    "strength": "Fixed-level human prediction",
+    "style": "Human-trained"
+  },
+  "maia1-1500": {
+    "description": "Uses a network trained on human games near 1500 Elo. The weights fix the rating band. The LC0 runtime runs the model with a one-node search.",
+    "rating": "1500 human training band",
+    "source": "https://github.com/CSSLab/maia-chess",
+    "strength": "Fixed-level human prediction",
+    "style": "Human-trained"
+  },
+  "maia1-1600": {
+    "description": "Uses a network trained on human games near 1600 Elo. The weights fix the rating band. The LC0 runtime runs the model with a one-node search.",
+    "rating": "1600 human training band",
+    "source": "https://github.com/CSSLab/maia-chess",
+    "strength": "Fixed-level human prediction",
+    "style": "Human-trained"
+  },
+  "maia1-1700": {
+    "description": "Uses a network trained on human games near 1700 Elo. The weights fix the rating band. The LC0 runtime runs the model with a one-node search.",
+    "rating": "1700 human training band",
+    "source": "https://github.com/CSSLab/maia-chess",
+    "strength": "Fixed-level human prediction",
+    "style": "Human-trained"
+  },
+  "maia1-1800": {
+    "description": "Uses a network trained on human games near 1800 Elo. The weights fix the rating band. The LC0 runtime runs the model with a one-node search.",
+    "rating": "1800 human training band",
+    "source": "https://github.com/CSSLab/maia-chess",
+    "strength": "Fixed-level human prediction",
+    "style": "Human-trained"
+  },
+  "maia1-1900": {
+    "description": "Uses a network trained on human games near 1900 Elo. The weights fix the rating band. The LC0 runtime runs the model with a one-node search.",
+    "rating": "1900 human training band",
+    "source": "https://github.com/CSSLab/maia-chess",
+    "strength": "Fixed-level human prediction",
+    "style": "Human-trained"
+  },
+  "maia2": {
+    "description": "Predicts moves from real rapid games. BoardLens maps the input rating to Maia-2’s training bands. The selected rating describes whose moves it tries to predict.",
+    "rating": "Human rating bands below 1100 through 2000+",
+    "source": "https://github.com/CSSLab/maia2",
+    "strength": "Rating-based human prediction",
+    "style": "Human-trained"
+  },
+  "maia3-23m": {
+    "description": "Mid-sized model with higher resource needs. It predicts moves human players at the chosen rating are likely to make. The target describes the players it models.",
+    "rating": "600–2600 target rating in BoardLens",
+    "source": "https://github.com/CSSLab/maia3",
+    "strength": "Rating-based human prediction",
+    "style": "Human-trained"
+  },
+  "maia3-5m": {
+    "description": "Smallest model for faster CPU predictions. It predicts moves human players at the chosen rating are likely to make. The target describes the players it models.",
+    "rating": "600–2600 target rating in BoardLens",
+    "source": "https://github.com/CSSLab/maia3",
+    "strength": "Rating-based human prediction",
+    "style": "Human-trained"
+  },
+  "maia3-79m": {
+    "description": "Largest model with the highest memory and compute needs. It predicts moves human players at the chosen rating are likely to make. The target describes the players it models.",
+    "rating": "600–2600 target rating in BoardLens",
+    "source": "https://github.com/CSSLab/maia3",
+    "strength": "Rating-based human prediction",
+    "style": "Human-trained"
+  },
+  "neural-chess": {
+    "description": "This compact network learns from human move choices across games. It ranks likely legal moves using the current position, with a single prediction pass in BoardLens.",
+    "rating": "No fixed Elo",
+    "source": "https://github.com/pbaer/neural-chess",
+    "strength": "Lightweight move prediction",
+    "style": "Human-trained"
+  },
+  "rodent": {
+    "description": "A search engine with configurable personalities. Its settings can change which positions and plans it favors. Select a supported local Rodent executable to use it.",
+    "rating": "Depends on the imported build and personality",
+    "source": "https://github.com/nescitus/rodent-iv",
+    "strength": "Customizable analysis",
+    "style": "Designed personalities"
+  },
+  "stockfish": {
+    "description": "Calculates lines and scores positions. Full strength and skill 20 let it search at its strongest settings. Lower skill or a rating limit deliberately weakens its move choices. On Android, select strength with the skill control.",
+    "rating": "Desktop rating limit: 1320–3190 Elo on supported builds. Benchmark example: Stockfish 18 64-bit 4CPU scored 3649 in CCRL 40/15.",
+    "benchmark": "https://computerchess.org.uk/4040/rating_list_all.html",
+    "source": "https://official-stockfish.github.io/docs/stockfish-wiki/Stockfish-FAQ.html",
+    "strength": "Superhuman analysis",
+    "style": "Computer search"
+  },
+  "tiny153": {
+    "description": "Looks one move ahead and favors safe squares and simple development. The rating comes from the Tiny Chess Bots competition. BoardLens uses one suggested move per search.",
+    "rating": "677 competition Elo",
+    "source": "https://sebastian.itch.io/tiny-chess-bots",
+    "strength": "Casual",
+    "style": "Programmed bot"
+  },
+  "tiny17": {
+    "description": "Tries to mirror the opponent’s moves when it can. The rating comes from the Tiny Chess Bots competition. BoardLens uses one suggested move per search.",
+    "rating": "192 competition Elo",
+    "source": "https://sebastian.itch.io/tiny-chess-bots",
+    "strength": "Absolute beginner",
+    "style": "Programmed bot"
+  },
+  "tiny253": {
+    "description": "Favors active pieces, advancing pawns and king safety. Deep tactics can trip it up. The rating comes from the Tiny Chess Bots competition. BoardLens uses one suggested move per search.",
+    "rating": "1276 competition Elo",
+    "source": "https://sebastian.itch.io/tiny-chess-bots",
+    "strength": "Challenging",
+    "style": "Programmed bot"
+  },
+  "tiny266": {
+    "description": "Searches for positions where pieces reach useful squares. The rating comes from the Tiny Chess Bots competition. BoardLens uses one suggested move per search.",
+    "rating": "1713 competition Elo",
+    "source": "https://sebastian.itch.io/tiny-chess-bots",
+    "strength": "Expert",
+    "style": "Programmed bot"
+  },
+  "tiny278": {
+    "description": "Plays the Bongcloud, then favors obvious captures, promotions and mate before picking other moves. The rating comes from the Tiny Chess Bots competition. BoardLens uses one suggested move per search.",
+    "rating": "307 competition Elo",
+    "source": "https://sebastian.itch.io/tiny-chess-bots",
+    "strength": "Easy",
+    "style": "Programmed bot"
+  },
+  "tiny303": {
+    "description": "Searches ahead and values how freely and safely its pieces can move. The rating comes from the Tiny Chess Bots competition. BoardLens uses one suggested move per search.",
+    "rating": "2001 competition Elo",
+    "source": "https://sebastian.itch.io/tiny-chess-bots",
+    "strength": "Master",
+    "style": "Programmed bot"
+  },
+  "tiny425": {
+    "description": "Uses a compact search focused on material and how freely pieces can move. The rating comes from the Tiny Chess Bots competition. BoardLens uses one suggested move per search.",
+    "rating": "1569 competition Elo",
+    "source": "https://sebastian.itch.io/tiny-chess-bots",
+    "strength": "Advanced",
+    "style": "Programmed bot"
+  },
+  "tiny529": {
+    "description": "Uses a compact neural network to score positions in its search. The rating comes from the Tiny Chess Bots competition. BoardLens uses one suggested move per search.",
+    "rating": "2246 competition Elo",
+    "source": "https://sebastian.itch.io/tiny-chess-bots",
+    "strength": "Elite",
+    "style": "Programmed bot"
+  },
+  "tiny610": {
+    "description": "Searches deeply and scores how well pieces are placed. The rating comes from the Tiny Chess Bots competition. BoardLens uses one suggested move per search.",
+    "rating": "2513 competition Elo",
+    "source": "https://sebastian.itch.io/tiny-chess-bots",
+    "strength": "Grandmaster tier",
+    "style": "Programmed bot"
+  },
+  "tiny614": {
+    "description": "Searches deeply for tactics and considers mobility, piece placement and pawn structure. The rating comes from the Tiny Chess Bots competition. BoardLens uses one suggested move per search.",
+    "rating": "2772 competition Elo",
+    "source": "https://sebastian.itch.io/tiny-chess-bots",
+    "strength": "Top tournament bot",
+    "style": "Programmed bot"
+  },
+  "tiny628": {
+    "description": "Searches deeply and can steer its own king into an attack. The rating comes from the Tiny Chess Bots competition. BoardLens uses one suggested move per search.",
+    "rating": "2172 competition Elo",
+    "source": "https://sebastian.itch.io/tiny-chess-bots",
+    "strength": "Strong master",
+    "style": "Programmed bot"
+  },
+  "tiny70": {
+    "description": "Searches ahead and emphasizes material and gaining time against opposing pieces. The rating comes from the Tiny Chess Bots competition. BoardLens uses one suggested move per search.",
+    "rating": "1085 competition Elo",
+    "source": "https://sebastian.itch.io/tiny-chess-bots",
+    "strength": "Intermediate",
+    "style": "Programmed bot"
+  },
+  "toby": {
+    "description": "Toby predicts human moves and uses an engine to assess them. On Mac, the Engine Library installs Fast mode with Maia-3 79M and Stockfish. Set the target rating, search time and number of recommendations.",
+    "rating": "Adjustable human rating target",
+    "source": "https://github.com/Yosha87/Toby",
+    "strength": "Human-style play",
+    "style": "Human-like model"
+  }
+}
