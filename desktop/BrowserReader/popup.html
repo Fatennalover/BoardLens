@@ -1,3 +1,55 @@
-<!doctype html><html><meta charset="utf-8"><title>BoardLens reader</title>
-<style>body{width:310px;background:#211932;color:#f5eeff;font:15px system-ui;padding:18px}input,button{box-sizing:border-box;width:100%;padding:12px;margin-top:12px;border:1px solid #755b9a;border-radius:8px;background:#352848;color:white}button{background:#c9b1ff;color:#211932;font-weight:700}small{display:block;line-height:1.5}p{line-height:1.5}</style>
-<h2>BoardLens reader</h2><p>In BoardLens, open Browser setup, enable the reader, and paste its key below.</p><input id="key" type="password" placeholder="Desktop reader key"><button id="save">Connect to this computer</button><p id="status" role="status"></p><button id="copy">Copy key</button><p id="notice" role="status"></p><small>Reads only visible Chess.com / Lichess boards. Connects to this computer on port 8788. Reconnects automatically while a chess tab is visible.</small><script src="popup.js"></script></html>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BoardLens</title>
+<style>
+:root { color-scheme: dark; background: #181221; color: #f4ebff; font: 14px/1.45 system-ui; }
+body { box-sizing: border-box; width: 318px; margin: 0; padding: 16px; }
+h1 { font-size: 23px; margin: 0; letter-spacing: -.03em; }
+h2 { font-size: 15px; margin: 0; }
+p { margin: 6px 0 0; } small, .muted { color: #c8b8db; }
+section, details { border: 1px solid #4c3a62; border-radius: 12px; background: #231a30; margin-top: 12px; padding: 12px; }
+summary { cursor: pointer; font-weight: 650; }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 40px; }
+.row + .row { border-top: 1px solid #493758; }
+input, button, select { font: inherit; }
+input[type=checkbox] { width: 18px; height: 18px; accent-color: #c5a5ff; }
+button, select, input[type=password] { color: inherit; background: #332544; border: 1px solid #755b95; border-radius: 8px; padding: 8px; }
+input[type=password] { box-sizing: border-box; width: 100%; margin: 6px 0 8px; }
+button { cursor: pointer; }
+button[type=submit] { background: #ceafff; color: #1d1228; font-weight: 700; }
+label[for=key] { display: block; margin-top: 10px; }
+#status { color: #dac6f9; }
+#status[data-state=connected] { color: #a8e3bf; }
+</style>
+</head>
+<body>
+<header>
+    <h1>BoardLens</h1>
+    <p id="status" role="status">Checking connection…</p>
+</header>
+<section aria-labelledby="coach-title">
+    <h2 id="coach-title">Coach</h2>
+    <p class="muted">Move explanations and likely replies beside the board.</p>
+    <label class="row"><span>Show Coach on the page</span><input id="coach" type="checkbox"></label>
+    <label class="row"><span>Moves to show</span><select id="moves">
+        <option value="1">1 move</option><option value="2">2 moves</option><option value="3">3 moves</option>
+    </select></label>
+    <label class="row"><span>Show board arrows</span><input id="arrows" type="checkbox"></label>
+</section>
+<details id="connection">
+    <summary>Desktop connection</summary>
+    <p class="muted">Open Browser setup in BoardLens and copy its pairing key.</p>
+    <form id="pairing">
+        <label for="key">Desktop reader key</label>
+        <input id="key" type="password" autocomplete="off" required>
+        <button type="submit">Connect</button>
+        <button id="copy" type="button">Copy key</button>
+    </form>
+    <p id="notice" role="status"></p>
+</details>
+<script src="popup.js"></script>
+</body>
+</html>

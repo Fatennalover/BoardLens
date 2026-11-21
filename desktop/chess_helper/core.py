@@ -22,8 +22,7 @@ def data_dir() -> Path:
         root = Path.home() / "Library/Application Support"
     else:
         root = Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share")))
-    from .autoplay_test import enabled
-    target = root / ("BoardLensLab" if enabled() else "BoardLens")
+    target = root / "BoardLens"
     target.mkdir(parents=True, exist_ok=True)
     return target
 

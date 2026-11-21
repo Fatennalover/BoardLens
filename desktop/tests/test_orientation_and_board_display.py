@@ -1,4 +1,4 @@
-import sys,types
+import sys
 import chess,cv2,numpy as np,pytest
 from chess_helper.coordinates import rank_orientation,templates
 from chess_helper.core import ordered_symbols,PositionTracker
@@ -45,34 +45,6 @@ def test_native_ocr_reads_actual_result_pixels():
     assert any(reason(text) for text in read_text(image))
 
 
-def test_lab_starts_off_plays_root_once_and_respects_player_color(qt,monkeypatch):
-    monkeypatch.setenv('BOARDLENS_AUTOPLAY_LAB','1');w=MainWindow()
-    try:
-        lab=w.autoplay_test;assert lab is not None and not lab.active
-        monkeypatch.setattr(w,'suggest',lambda **kw:None)
-        w.result={'fen':w.tracker.board.fen(),'lines':[{'move':'e2e4','reply_move':'e7e5'}]}
-        assert lab.delay.value()==100
-        lab.delay.setValue(0)
-        lab.start();assert w.tracker.board.peek().uci()=='e2e4';assert not w.tracker.board.turn
-        lab.tick();assert len(w.tracker.board.move_stack)==1
-        lab.stop();assert not lab.active
-        # The prediction never becomes an input for the opponent's side.
-        w.tracker=PositionTracker();lab.delay.setValue(5000);lab.start();lab.stop();lab.tick()
-        assert not w.tracker.board.move_stack
-    finally:w.close()
-
-
-def test_stop_between_desktop_clicks_prevents_destination(qt,monkeypatch):
-    from chess_helper.controls import ClickMove
-    from chess_helper import window_clicks
-    clicks=[]
-    class Target:
-        def click(self,point):clicks.append(point)
-    monkeypatch.setattr(window_clicks,'window_clicks',lambda *_:Target())
-    sender=ClickMove();valid=[True];sender.start((20,30),(100,120),guard=lambda:valid[0]);valid[0]=False;sender._finish()
-    assert clicks==[(20,30)] and not sender.active
-
-
 def test_screen_eval_moves_resizes_and_keeps_custom_bounds(qt):
     from PySide6.QtCore import QRect
     from PySide6.QtGui import QGuiApplication
@@ -105,26 +77,14 @@ def test_browser_evaluation_works_with_arrows_off_and_uses_separate_engine(qt):
         hint=reader.hints['browser:qa:0'];assert hint['arrows']==[]
         assert hint['evaluation']['cp']==185 and hint['evaluation']['provider']=='Evaluation engine'
         w.screen_eval_enabled.setChecked(False);w.publish_reader_hints();assert reader.hints['browser:qa:0']['evaluation']['cp']==185
-        w.browser_eval_enabled.setChecked(False);w.publish_reader_hints();assert reader.hints=={}
+        w.browser_eval_enabled.setChecked(False);w.publish_reader_hints()
+        assert reader.evaluation_visible is False
+        assert reader.hints['browser:qa:0']['evaluation'] is None
     finally:w.close()
 
 @pytest.mark.parametrize("bottom",[True,False])
 def test_tiny_coordinate_labels_abstain_instead_of_false_flip(bottom):
     assert rank_orientation(labels(bottom,320)) in (None,bottom)
-
-
-def test_autoplay_respects_the_locked_displayed_move(qt,monkeypatch):
-    monkeypatch.setenv('BOARDLENS_AUTOPLAY_LAB','1');w=MainWindow()
-    try:
-        monkeypatch.setattr(w,'suggest',lambda **kw:None)
-        root=w.tracker.board.fen()
-        w.result={'fen':root,'lines':[{'move':'e2e4'}]}
-        w.stick_to_move.blockSignals(True);w.stick_to_move.setChecked(True);w.stick_to_move.blockSignals(False)
-        w._pinned_result={'fen':root,'lines':[{'move':'d2d4'}]}
-        w.autoplay_test.delay.setValue(0)
-        w.autoplay_test.start()
-        assert w.tracker.board.peek().uci()=='d2d4'
-    finally:w.close()
 
 
 def test_result_at_start_position_survives_board_loss_until_manual_reset(qt):
@@ -163,27 +123,3 @@ def test_arrow_engine_profiles_roundtrip_through_companion(qt):
         assert window.extra_engines.primary_color=='#22bb88'
     finally:
         window.close()
-
-
-@pytest.mark.parametrize('delay_ms', [1, 100])
-def test_autoplay_accepts_millisecond_delays(qt,monkeypatch,delay_ms):
-    from chess_helper import autoplay_test
-    monkeypatch.setenv('BOARDLENS_AUTOPLAY_LAB','1')
-    now=[120.]
-    monkeypatch.setattr(autoplay_test,'time',types.SimpleNamespace(monotonic=lambda:now[0]))
-    w=MainWindow()
-    try:
-        monkeypatch.setattr(w,'suggest',lambda **kw:None)
-        lab=w.autoplay_test
-        lab.delay.setValue(delay_ms)
-        original=w.tracker.board.fen()
-        w.result={'fen':original,'lines':[{'move':'e2e4'}]}
-        lab.start()
-        now[0]+=(delay_ms-.1)/1000
-        lab.tick()
-        assert w.tracker.board.fen()==original
-        now[0]+=.0002
-        lab.tick()
-        assert w.tracker.board.peek().uci()=='e2e4'
-    finally:
-        w.close()

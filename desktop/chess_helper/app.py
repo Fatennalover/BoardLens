@@ -20,8 +20,8 @@ from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QFileDialog, QG
 from . import engine_profiles
 from . import __version__
 from .toggle import ToggleButton as QCheckBox
-from .capture import BoardRegion, bgr_pixmap, capture, input_point, screen_key
-from .controls import ClickMove, Hotkeys
+from .capture import BoardRegion, bgr_pixmap, capture, screen_key
+from .controls import Hotkeys
 from .core import (DEFAULT_KEYS, PositionTracker, SearchSettings, board_from_symbols,
                    can_send_move, data_dir, find_engine, load_settings, ordered_symbols,
                    save_settings, simple_move, validate_keys)
@@ -106,10 +106,6 @@ class MainWindow(QMainWindow):
         self._opening_position = object()
         self._opening_index = None
         self._moves_position = object()
-        from .autoplay_test import enabled as lab_enabled
-        if lab_enabled():
-            self.settings.setdefault('keys',{name:combo.replace('<alt>+','<alt>+<shift>+') for name,combo in DEFAULT_KEYS.items()})
-            self.settings.setdefault('phone_auto',False)
         self.screen_eval.set_user_rect(self.settings.get("screen_eval_geometry"))
         self.screen_eval.geometry_changed.connect(lambda _:self.queue_autosave())
         self.tracker = PositionTracker()
@@ -131,16 +127,11 @@ class MainWindow(QMainWindow):
         self.generation = 0
         self.last_observation = None
         self.stable_count = 0
-        self.last_sent_fen = None
-        self.pending_until = 0
         self.last_requested_fen = None
         self.closing = False
         self.engine_signals = EngineSignals(self)
         self.engine_signals.complete.connect(self.engine_finished)
         self.engine_signals.progress.connect(self.engine_progress)
-        self.clicker = ClickMove(self)
-        self.clicker.done.connect(lambda: self.status("Move clicked. Waiting for the board to confirm it."))
-        self.clicker.failed.connect(self.input_failed)
         self.hotkeys = Hotkeys(self)
         self.hotkeys.action.connect(self.dispatch)
         self.timer = QTimer(self)
@@ -158,8 +149,6 @@ class MainWindow(QMainWindow):
         from .engine_overlays import EngineOverlays
         self.extra_engines=EngineOverlays(self)
         self._build_ui()
-        from .autoplay_test import AutoplayTest
-        self.autoplay_test=AutoplayTest(self)
         if sys.platform == 'darwin' and not os.environ.get('BOARDLENS_TEST_MODE'):
             from .permissions import Permissions
             self.permissions = Permissions(self)
@@ -250,7 +239,7 @@ class MainWindow(QMainWindow):
             grid.takeAt(0)
         if self._compact:
             first = (self.suggest_button, self.live_button, self.stop_button)
-            second = (self.quick_source, self.quick_scan_button, self.autoplay_button)
+            second = (self.quick_source, self.quick_scan_button)
             for column, pair in enumerate(zip(first, second)):
                 grid.setColumnStretch(column, 1)
                 for row, button in enumerate(pair):
@@ -258,7 +247,7 @@ class MainWindow(QMainWindow):
             grid.setColumnStretch(3, 0)
         else:
             controls = (self.quick_source, None, self.suggest_button, self.live_button,
-                        self.stop_button, self.quick_scan_button, self.autoplay_button)
+                        self.stop_button, self.quick_scan_button)
             for column, button in enumerate(controls):
                 grid.setColumnStretch(column, int(button is None))
                 if button is not None:
@@ -389,7 +378,6 @@ class MainWindow(QMainWindow):
         self.board_navigation.setVisible(board_page and self.multi.count > 1)
         self.boards_button.setChecked(index == 1)
         self.focus_button.setChecked(index == 0)
-        self.autoplay_host.setVisible(board_page)
         self.board_page_button.setChecked(board_page)
         self.settings_button.setChecked(index == 3)
 
@@ -654,7 +642,6 @@ class MainWindow(QMainWindow):
                 self.invalidate(preserve_eval=True)
             elif state == "moved":
                 self._turn_known = True
-                self.pending_until = 0
                 self.invalidate(preserve_eval=True)
             elif read.symbols == ordered_symbols(chess.Board(), read.white_bottom):
                 self._turn_known = True
@@ -681,8 +668,6 @@ class MainWindow(QMainWindow):
                 self.overlay.hide();self.update_screen_evaluation();self.multi.update_primary()
                 self.status(f"Game over · {self.tracker.board.result()} — still watching for a new board")
                 return
-            if self.pending_until:
-                return
             if self.job is None and self.last_requested_fen != self.tracker.board.fen():
                 self.suggest(from_poll=True)
             elif self.job is None:
@@ -705,8 +690,6 @@ class MainWindow(QMainWindow):
         if self.closing or not self._monitoring or fen!=self.tracker.board.fen():return
         self.game_ended=True;self._ended_placement=self.tracker.board.board_fen()
         self.move_advantage.refresh()
-        if self.autoplay_test.active and self.autoplay_test.matches_board():
-            self.autoplay_test.wait_for_new_board(fen)
         self.invalidate(preserve_eval=True);self.overlay.hide();self.screen_eval.hide()
         self.simple_label.setText('Game ended · '+message)
         self.set_analysis_html('<h2>Game ended</h2><p>'+html.escape(message)+'</p><p>Still watching for a new game. Scan now resumes analysis of this board.</p>',fen)
@@ -801,12 +784,6 @@ class MainWindow(QMainWindow):
             options.setStretch(index, 1)
         layout.addWidget(self.analysis_options_bar)
         self.player_label = QLabel("Your color: White · bottom of board")
-        self.autoplay_button=QPushButton("Autoplay");self.autoplay_button.setCheckable(True)
-        self.autoplay_button.setToolTip("Show autoplay controls for practice and bot games")
-        self.autoplay_host = QWidget()
-        autoplay_layout = QVBoxLayout(self.autoplay_host)
-        autoplay_layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self.autoplay_host)
         self.player_label.setStyleSheet("color:#c6bed9;")
         split = QSplitter(Qt.Orientation.Horizontal)
         split.setChildrenCollapsible(False)
@@ -860,10 +837,6 @@ class MainWindow(QMainWindow):
         self.castling.setPlaceholderText("KQkq or -")
         self.castling.hide()
         src.addLayout(form)
-        self.allow_clicks = QCheckBox("Enable screen clicks for practice")
-        self.allow_clicks.setToolTip("Use offline, analysis boards, or games where assistance is allowed.")
-        self.allow_clicks.toggled.connect(self.clicks_changed)
-        self.allow_clicks.hide()
         self.auto_queen = QCheckBox("Target board auto-promotes to queen")
         self.auto_queen.hide()
         self.reader_options=QWidget();reader_layout=QVBoxLayout(self.reader_options);reader_layout.setContentsMargins(0,4,0,4);reader_layout.setSpacing(12)
@@ -1393,7 +1366,6 @@ class MainWindow(QMainWindow):
         return reads[:3]
 
     def toggle_browser_reader(self,enabled):
-        if getattr(self,'autoplay_test',None):self.autoplay_test.stop()
         if self.browser_reader:
             self.browser_reader.publish({})
             self.browser_reader.close();self.browser_reader=None
@@ -1436,14 +1408,30 @@ class MainWindow(QMainWindow):
         hints={}
         sources=[(self._last_read,self.tracker,self.board_view.arrows,self.board_view.marks,self._screen_confirmed,self.result)]
         sources += [(state.read,state.tracker,state.card.view.arrows,state.card.view.marks,state.confirmed,state.result) for state in self.multi.states]
-        if self._monitoring and not self._reviewing and not self.game_ended and (self.overlay_enabled.isChecked() or self.browser_eval_enabled.isChecked()):
+        if self._monitoring and not self._reviewing and not self.game_ended:
             for read,tracker,arrows,marks,confirmed,result in sources:
                 if read and tracker and confirmed and getattr(read,'source_id','').startswith('browser:'):
-                    hints[read.source_id]={'fen':getattr(read,'visible_fen',None) or getattr(read,'exact_fen',None) or tracker.board.fen(),
+                    board = tracker.board
+                    side = 'White' if board.turn else 'Black'
+                    assessment = self.evaluations.score(board, result)
+                    may_show = self.show_white.isChecked() if board.turn else self.show_black.isChecked()
+                    if self.only_my_color.isChecked():
+                        may_show = board.turn == read.white_bottom
+                    candidates = []
+                    if may_show and result and result.get('fen') == board.fen():
+                        limit = 1 if self.stick_to_move.isChecked() else min(3, self.multipv.value())
+                        candidates = [
+                            {key: line.get(key, '') for key in ('san', 'score', 'description', 'insights', 'reply_simple')}
+                            for rank, line in enumerate(result['lines'][:limit], 1) if self.visible_rank(rank)
+                        ]
+                    coach = {'side': side, 'engine': result.get('engine', '') if candidates else '',
+                             'score': assessment.get('score', ''), 'evaluator': assessment.get('provider', ''),
+                             'moves': candidates, 'waiting_for_turn': not may_show}
+                    hints[read.source_id]={'coach':coach,'fen':getattr(read,'visible_fen',None) or getattr(read,'exact_fen',None) or tracker.board.fen(),
                         'arrows':[{'move':a['move'].uci(),'color':a['color'],'engine':a.get('engine'),'dashed':a.get('dashed',False)} for a in arrows] if self.overlay_enabled.isChecked() else [],
                         'overlap_color':self.overlap_color,
                         'marks':[dict(m,square=chess.square_name(m['square'])) for m in marks] if self.overlay_enabled.isChecked() else [],
-                        'evaluation':self.evaluations.score(tracker.board,result) if self.browser_eval_enabled.isChecked() else None}
+                        'evaluation':assessment if self.browser_eval_enabled.isChecked() else None}
         self.browser_reader.publish(hints, evaluation_visible=(self._monitoring and not self._reviewing and not self.game_ended and self.browser_eval_enabled.isChecked()))
 
     def toggle_phone(self,enabled):
@@ -1608,7 +1596,6 @@ class MainWindow(QMainWindow):
         values['primary_arrow_color']=self.extra_engines.primary_color
         values['overlap_arrow_color'] = self.overlap_color
         values['screen_eval_geometry']=list(self.screen_eval.user_rect) if self.screen_eval.user_rect else None
-        if getattr(self,'autoplay_test',None):values['autoplay_delay_ms']=self.autoplay_test.delay.value()
         values.update(source_index=self.source.currentIndex(),orientation_index=self.orientation.currentIndex(),turn_index=self.turn.currentIndex(),always_top=self.always_top.isChecked(),browser_reader_enabled=self.browser_reader_button.isChecked(),native_reader_enabled=self.native_reader_button.isChecked(),phone_port=self.phone_port.value(),phone_auto=self.phone_auto.isChecked(),compact=self._compact,window_geometry=list(self.geometry().getRect()),monitor_key=self.monitor.currentData(),
                       engine=self.engine_path.text().strip(), mode=self.mode.currentText(),
                       keys={name: field.text().strip() for name, field in self.key_fields.items()})
@@ -1720,9 +1707,6 @@ class MainWindow(QMainWindow):
         if self._ready and self.source.currentIndex() == 1:
             self.start_live()
 
-    def clicks_changed(self,enabled):
-        if not enabled:self.clicker.cancel()
-
     def select_board(self, detect=True):
         self.scan_or_open()
 
@@ -1734,8 +1718,6 @@ class MainWindow(QMainWindow):
 
     def scan_now(self, checked=False):
         self.game_ended=False;self._ended_placement=None
-        if self.autoplay_test.active:
-            self.autoplay_test.candidate = None
         if self.source.currentIndex()!=1:
             self.source.setCurrentIndex(1)
         if self._reviewing and self._history:
@@ -1862,7 +1844,6 @@ class MainWindow(QMainWindow):
         if state == "unmatched":
             raise ValueError("Position is out of sync. Load its FEN or use Import recognized position with the correct turn and rights.")
         if state == "moved":
-            self.pending_until = 0
             self.invalidate()
             self.refresh_board()
         return symbols
@@ -1926,8 +1907,6 @@ class MainWindow(QMainWindow):
         self.tracker = PositionTracker(board)
         self._turn_known = True
         self._position_locked = True
-        self.last_sent_fen = None
-        self.pending_until = 0
         self.last_observation = None
         self.stable_count = 0
         self.board_view.selected = None
@@ -2061,15 +2040,9 @@ class MainWindow(QMainWindow):
         self.copy_text(self.tracker.board.fen())
 
     def new_game(self):
-        keep_autoplay = self.practice and self.autoplay_test.active
-        if keep_autoplay:
-            self.autoplay_test.reset_round()
-        else:
-            self.stop()
+        self.stop()
         self.set_position(chess.Board())
         self.status("Position reset to the standard start. Screen users: reset the target board too.")
-        if keep_autoplay and self.tracker.board.turn == self.autoplay_test.color:
-            self.suggest(from_poll=True)
 
     def undo(self):
         if not self.editable_position:
@@ -2114,7 +2087,7 @@ class MainWindow(QMainWindow):
 
     def suggest(self, checked=False, from_poll=False):
         try:
-            if self._reviewing or self.clicker.active or self.pending_until:
+            if self._reviewing:
                 return
             if self.source.currentIndex() == 1:
                 if not self._screen_confirmed or self._last_read is None:
@@ -2125,10 +2098,7 @@ class MainWindow(QMainWindow):
                 return
             board = self.tracker.board.copy()
             if board.is_game_over():
-                if self.practice and self.autoplay_test.active:
-                    self.autoplay_test.wait_for_new_board(board.fen())
-                else:
-                    self.stop()
+                self.stop()
                 self.status(f"Game over: {board.result()}")
                 return
             if hasattr(self,'evaluations'):self.evaluations.request(board)
@@ -2167,7 +2137,6 @@ class MainWindow(QMainWindow):
         self.result=dict(result,provisional=True)
         self.render_result(self.result)
         if result.get('primary_complete'):
-            self.autoplay_test.wake()
             self.status("Move ready · calculating possible replies");return
         label="Move locked" if self.stick_to_move.isChecked() else "Early suggestion"
         self.status(f"{label} · depth {result['lines'][0]['depth']} · still thinking at your chosen limit")
@@ -2193,7 +2162,6 @@ class MainWindow(QMainWindow):
         locked="Move locked · " if self.stick_to_move.isChecked() else ""
         detail=f'human rating {self.human_elo.value()}' if result.get('evaluation_kind')=='human-game outcome estimate' else f'depth {result["lines"][0]["depth"]}'
         self.status(f"{locked}{result['engine']} · {elapsed}{detail} · {result['lines'][0]['advantage']} · ready")
-        self.autoplay_test.wake()
     def render_result(self, result):
         if result.get('fen')!=self.tracker.board.fen():
             self.update_visuals()
@@ -2357,7 +2325,7 @@ class MainWindow(QMainWindow):
         self.board_view.best_move=None
         self.board_view.update()
         if (not self.game_ended and (arrows or marks) and self.overlay_enabled.isChecked() and self.target_lock.overlay_visible() and self.source.currentIndex()==1
-                and self._monitoring and (self._screen_confirmed or time.monotonic()<self._overlay_grace_until) and not self.clicker.active and not self.pending_until
+                and self._monitoring and (self._screen_confirmed or time.monotonic()<self._overlay_grace_until)
                 and self.region and not self.closing and not self._reviewing):
             try:
                 if self._last_read and getattr(self._last_read,'desktop_rect',None):
@@ -2388,7 +2356,7 @@ class MainWindow(QMainWindow):
         self.last_requested_fen = None
         self.status("Auto suggest enabled. Analysis follows moves on this board.")
 
-    def play_best(self, checked=False, _verified_symbols=None):
+    def play_best(self, checked=False):
         if not self.editable_position:
             self.status("Live mode provides suggestions. Play moves yourself on the target board.")
             return
@@ -2406,10 +2374,6 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self.status(str(exc))
 
-    def input_failed(self, error):
-        self.stop()
-        self.status(f"Could not click the board: {error}")
-
     def poll(self):
         if self.browser_reader or self.native_reader_button.isChecked():
             route=foreground_kind()
@@ -2417,12 +2381,7 @@ class MainWindow(QMainWindow):
         if self._overlay_grace_until and not self._screen_confirmed and time.monotonic()>=self._overlay_grace_until:
             self._overlay_grace_until=0.
             self.overlay.hide()
-        if self.closing or not self.live_button.isChecked() or self.clicker.active or QApplication.activeModalWidget():
-            return
-        if self.pending_until and time.monotonic() > self.pending_until:
-            self.stop()
-            self.invalidate()
-            self.status("The board did not confirm the move; check the target and sync it.")
+        if self.closing or not self.live_button.isChecked() or QApplication.activeModalWidget():
             return
         if self.source.currentIndex() == 1:
             self.request_scan()
@@ -2430,14 +2389,9 @@ class MainWindow(QMainWindow):
         try:
             if not self.editable_position:
                 return
-            if self.pending_until:
-                return
             board = self.tracker.board
             if board.is_game_over():
-                if self.practice and self.autoplay_test.active:
-                    self.autoplay_test.wait_for_new_board(board.fen())
-                else:
-                    self.stop()
+                self.stop()
                 self.status(f"Game over: {board.result()}")
             elif self.job is None and self.last_requested_fen != board.fen():
                 self.suggest(from_poll=True)
@@ -2446,7 +2400,6 @@ class MainWindow(QMainWindow):
             self.status(str(exc))
 
     def stop(self, checked=False):
-        if getattr(self,'autoplay_test',None):self.autoplay_test.stop()
         if getattr(getattr(self, 'permissions', None), 'blocked', False):
             self.permissions.resume = False
         self._monitoring = False
@@ -2466,12 +2419,10 @@ class MainWindow(QMainWindow):
         self.live_worker.cancel()
         self.generation += 1
         self.live_button.setChecked(False)
-        self.clicker.cancel()
         if self.job:
             self.job.cancel()
             self.job = None
             self.last_requested_fen = None
-        self.pending_until = 0
         self.status("STOPPED · screen monitoring and engine search are off")
 
     def recommendation_preset(self,count):
@@ -2680,9 +2631,6 @@ class MainWindow(QMainWindow):
             if state.tracker and state.tracker.board.fen()==fen:self.multi.render(state)
 
     def open_updates(self):
-        from .autoplay_test import enabled as lab_enabled
-        if lab_enabled():
-            self.status("Autoplay Test uses separate test downloads; regular updates are disabled.");return
         from .updater import UpdateDialog
         if not hasattr(self,'update_dialog'):self.update_dialog=UpdateDialog(self)
         self.update_dialog.show();self.update_dialog.raise_();self.update_dialog.start_check()

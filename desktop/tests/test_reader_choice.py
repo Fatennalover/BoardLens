@@ -81,56 +81,15 @@ def test_extension_has_priority_for_2d_and_no_extension_uses_capture(qt,monkeypa
     finally:worker.close();w.close()
 
 
-def test_autoplay_offer_survives_a_lost_reply_and_claims_are_single_use():
-    reader=BrowserReader(port=0)
-    try:
-        page='a'*32
-        item={'fen':chess.STARTING_FEN,'white_bottom':False,'practice_id':page,
-              'practice_focused':True,'exact':True,'play_protocol':2}
-        def frames(tab='original',**overrides):
-            return reader.accept({'source':tab,'boards':[{**item,**overrides}]})
-        read=frames()[0][2]
-        identity=read.source_id
-        move=chess.Move.from_uci('e2e4')
-        command_id=reader.offer_autoplay(read,move)
-        claim={'source':'original','index':0,'id':command_id,'page':page,'fen':chess.STARTING_FEN}
-        assert identity not in reader.hints_for_post(frames('other'))
-        assert reader.claim_play({**claim,'source':'other'}) is None
-        advanced=chess.Board();advanced.push(move)
-        for changes in ({'practice_id':'b'*32},{'practice_focused':False},
-                        {'exact':False},{'play_protocol':1},{'fen':advanced.fen()}):
-            assert identity not in reader.hints_for_post(frames(**changes))
-            assert reader.claim_play(claim) is None
-        for _ in range(2):
-            hint=reader.hints_for_post(frames())[identity]
-            assert 'play' not in hint
-            assert hint['autoplay_offer']['id']==command_id
-            assert reader.play_state(identity,command_id)=='offered'
-        command=reader.claim_play(claim)
-        assert command['fen']==chess.STARTING_FEN and command['move']=='e2e4'
-        assert reader.play_state(identity,command_id)=='claimed'
-        assert reader.claim_play(claim) is None
-        assert identity not in reader.hints_for_post(frames())
-        claim['id']=reader.offer_autoplay(read,move)
-        assert identity in reader.hints_for_post(frames())
-        reader.clear_autoplay(identity)
-        assert reader.claim_play(claim) is None
-        assert identity not in reader.hints_for_post(frames())
-    finally:
-        reader.close()
-
-
 def test_browser_frames_isolate_bad_entries_and_prioritize_focused_boards(monkeypatch):
     clock = [10.0]
     monkeypatch.setattr('chess_helper.direct_boards.time.monotonic',lambda:clock[0])
     reader=BrowserReader(port=0)
     try:
         item={'fen':chess.STARTING_FEN,'white_bottom':True,'practice_id':'a'*32,
-              'index':1,'practice_focused':True,'exact':True,'play_protocol':2}
+              'index':1,'practice_focused':True,'exact':True}
         frames=reader.accept({'source':'focus','boards':[{'fen':'invalid'},item]})
         assert len(frames)==1
-        read=frames[0][2]
-        command_id=reader.offer_autoplay(read,chess.Move.from_uci('e2e4'))
         clock[0]+=.4
         for index in range(4):
             reader.accept({'source':f'tab-{index}','boards':[{**item,'practice_focused':False}]})
@@ -138,42 +97,8 @@ def test_browser_frames_isolate_bad_entries_and_prioritize_focused_boards(monkey
         assert reader.reads()[0][2].received_at==10.0
         clock[0]+=.15
         assert all(source!='browser:focus:1' for source, *_ in reader.reads())
-        assert reader.claim_play({'source':'focus','index':1,'id':command_id,
-                                  'page':item['practice_id'],'fen':item['fen']}) is None
     finally:
         reader.close()
-
-
-def test_claimed_move_can_retry_once_after_a_fresh_read_of_the_same_position(qt,monkeypatch):
-    import types
-    from chess_helper.autoplay_test import PendingMove
-
-    window=MainWindow()
-    player=window.autoplay_test
-    board=chess.Board()
-    expected=board.copy()
-    expected.push_uci('e2e4')
-    root=board.fen()
-    read=types.SimpleNamespace(practice_kind='computer-bot',practice_focused=True)
-    revoked=[]
-    reader=types.SimpleNamespace(play_state=lambda *args:'claimed',clear_autoplay=revoked.append)
-    monkeypatch.setattr('chess_helper.autoplay_test.time',types.SimpleNamespace(monotonic=lambda:10.))
-    try:
-        player.active=True
-        player.reader=reader
-        player.target=('browser:tab:0','page')
-        player.awaiting=PendingMove('previous',root,expected.fen(),8.)
-        player.confirm_pending(None,board,root)
-        assert player.active and player.awaiting and not revoked
-        assert player.label.text().startswith('Paused')
-        player.confirm_pending(read,board,root)
-        assert player.active and player.awaiting is None
-        assert player.retried_root==root and revoked==['browser:tab:0']
-        player.awaiting=PendingMove('retry',root,expected.fen(),9.)
-        player.confirm_pending(read,board,root)
-        assert not player.active and player.awaiting is None
-    finally:
-        window.close()
 
 
 def test_browser_history_rebuilds_moves_after_joining_in_the_middle(qt, monkeypatch):

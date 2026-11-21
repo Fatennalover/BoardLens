@@ -29,7 +29,7 @@ def prepare(runtime):
  return python
 
 def main():
- parser=argparse.ArgumentParser();parser.add_argument('--lab',action='store_true',default=os.environ.get('BOARDLENS_BUILD_LAB')=='1');parser.add_argument('--work',type=Path,required=True);parser.add_argument('--out',type=Path,required=True);parser.add_argument('--runtime',type=Path);parser.add_argument('--sign-identity',default=os.environ.get('BOARDLENS_CODESIGN_IDENTITY'),help='Developer ID name or fingerprint; auto-detects one local Developer ID. Use - for an ad hoc development build.');args=parser.parse_args()
+ parser=argparse.ArgumentParser();parser.add_argument('--work',type=Path,required=True);parser.add_argument('--out',type=Path,required=True);parser.add_argument('--runtime',type=Path);parser.add_argument('--sign-identity',default=os.environ.get('BOARDLENS_CODESIGN_IDENTITY'),help='Developer ID name or fingerprint; auto-detects one local Developer ID. Use - for an ad hoc development build.');args=parser.parse_args()
  work=args.work.resolve();out=args.out.resolve();work.mkdir(parents=True,exist_ok=True);out.mkdir(parents=True,exist_ok=True);payload=work/'payload';payload.mkdir(exist_ok=True)
  runtime=args.runtime.resolve() if args.runtime else payload/'runtime'
  if runtime!=payload/'runtime':
@@ -44,8 +44,6 @@ def main():
   for p in files:
    if p!=owned:archive.write(p,'BoardLens/'+p.relative_to(SOURCE).as_posix())
   manifest=json.loads(owned.read_text())
-  if args.lab:
-   manifest.append('AUTOPLAY-TEST');archive.writestr('BoardLens/AUTOPLAY-TEST','Separate test edition; automatic input starts OFF.\n')
   archive.writestr('BoardLens/release-files.json',json.dumps(sorted(manifest),indent=2)+'\n')
  for src,dest in [(SOURCE/'packaging/native/start.py',payload/'start.py'),(SOURCE/'chess_helper/update_apply.py',payload/'update_apply.py'),(SOURCE/'LICENSE',payload/'LICENSE'),(SOURCE/'THIRD-PARTY.txt',payload/'THIRD-PARTY.txt')]:shutil.copy2(src,dest)
  sys.path.insert(0,str(SOURCE));from chess_helper.installer import install_stockfish
@@ -57,7 +55,7 @@ def main():
  if not engine_source.exists():engine_source=SOURCE.parent/'mobile/android/engine-source/Stockfish-edb0d9d-source.tar.gz'
  if not engine_source.exists():raise RuntimeError('The corresponding Stockfish source archive is missing.')
  shutil.copy2(engine_source,payload/'Stockfish-corresponding-source.tar.gz');shutil.copy2(SOURCE/'chess_helper/assets/licenses/Stockfish-GPL3.txt' if (SOURCE/'chess_helper/assets/licenses/Stockfish-GPL3.txt').exists() else SOURCE/'LICENSE',payload/'Stockfish-GPL3.txt')
- metadata={'autoplay_test':args.lab,'version':version,'platform':platform.system(),'architecture':platform.machine(),'source_sha256':sha(payload/'source.zip')};(payload/'metadata.json').write_text(json.dumps(metadata,indent=2))
+ metadata={'autoplay_test':False,'version':version,'platform':platform.system(),'architecture':platform.machine(),'source_sha256':sha(payload/'source.zip')};(payload/'metadata.json').write_text(json.dumps(metadata,indent=2))
  archive=work/'payload.zip'
  if sys.platform=='darwin':
   # The DMG/ZIP already compresses the installed bundle. Do not make users
@@ -71,7 +69,7 @@ def main():
   digest=sha(archive);meta=dict(metadata,payload_sha256=digest)
  icon=SOURCE/'chess_helper/assets/ui/boardlens-icon-mac.png' if sys.platform=='darwin' else SOURCE/'chess_helper/assets/ui/boardlens-icon-rounded.png'
  if sys.platform=='darwin':
-  app=Path(tempfile.mkdtemp(prefix='boardlens-native-'))/('BoardLens Autoplay Test.app' if args.lab else 'BoardLens.app')
+  app=Path(tempfile.mkdtemp(prefix='boardlens-native-'))/'BoardLens.app'
   if app.exists():shutil.rmtree(app)
   resources=app/'Contents/Resources';binary=app/'Contents/MacOS';resources.mkdir(parents=True);binary.mkdir()
   shutil.copytree(payload,resources/'native',symlinks=True)
@@ -82,7 +80,6 @@ def main():
   run(['/usr/bin/iconutil','-c','icns',iconset,'-o',resources/'BoardLens.icns'])
   import plistlib
   info={'CFBundleName':'BoardLens','CFBundleDisplayName':'BoardLens','CFBundleIdentifier':'app.boardlens.desktop','CFBundleExecutable':'BoardLens','CFBundlePackageType':'APPL','CFBundleShortVersionString':version,'CFBundleVersion':version,'CFBundleIconFile':'BoardLens.icns','LSMinimumSystemVersion':'14.0','NSHighResolutionCapable':True,'NSPrincipalClass':'NSApplication','NSAppleEventsUsageDescription':'BoardLens reads supported local chess positions when you enable that connection.'}
-  if args.lab:info.update(CFBundleName='BoardLens Autoplay Test',CFBundleDisplayName='BoardLens Autoplay Test',CFBundleIdentifier='app.boardlens.desktop.lab')
   with (app/'Contents/Info.plist').open('wb') as f:plistlib.dump(info,f)
   run(['/usr/bin/clang','-arch',platform.machine(),'-mmacosx-version-min=14.0','-fobjc-arc','-I'+str(runtime/'include/python3.12'),'-framework','Cocoa','-Wno-deprecated-declarations',SOURCE/'packaging/native/Launcher.m','-o',binary/'BoardLens'])
   for item in [app,*app.rglob('*')]:
@@ -94,17 +91,17 @@ def main():
   from mac_signing import signing_identity,sign_app
   meta['signing']=sign_app(app,signing_identity(args.sign_identity))
   meta['app_path']=str(app)
-  destination=out/(('BoardLens-Autoplay-Test-Mac-' if args.lab else 'BoardLens-Mac-')+('AppleSilicon' if platform.machine()=='arm64' else 'Intel')+'.zip');destination.unlink(missing_ok=True);run(['/usr/bin/ditto','-c','-k','--keepParent',app,destination])
+  destination=out/('BoardLens-Mac-'+('AppleSilicon' if platform.machine()=='arm64' else 'Intel')+'.zip');destination.unlink(missing_ok=True);run(['/usr/bin/ditto','-c','-k','--keepParent',app,destination])
  else:
   app=out/'BoardLens-Windows';resources=app/'Resources';resources.mkdir(parents=True,exist_ok=True);shutil.copy2(archive,resources/'payload.zip')
   from PIL import Image
   Image.open(icon).save(work/'BoardLens.ico',sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)])
-  cs=work/'Launcher.cs';cs.write_text((SOURCE/'packaging/native/Launcher.cs').read_text().replace('@PAYLOAD_SHA@',digest).replace('@DATA_FOLDER@','BoardLensLab' if args.lab else 'BoardLens'))
+  cs=work/'Launcher.cs';cs.write_text((SOURCE/'packaging/native/Launcher.cs').read_text().replace('@PAYLOAD_SHA@',digest).replace('@DATA_FOLDER@','BoardLens'))
   compiler=Path(os.environ['WINDIR'])/'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
   run([compiler,'/nologo','/target:winexe','/platform:x64','/optimize+','/win32icon:'+str(work/'BoardLens.ico'),'/win32manifest:'+str(SOURCE/'packaging/native/Launcher.manifest'),'/reference:System.Windows.Forms.dll','/reference:System.Drawing.dll','/reference:System.IO.Compression.dll','/reference:System.IO.Compression.FileSystem.dll','/out:'+str(app/'BoardLens.exe'),cs])
   meta['app_path']=str(app/'BoardLens.exe')
   (app/'READ-ME.txt').write_text('Unzip the complete folder, then open BoardLens.exe. No Python install or Terminal is needed. Keep the Resources folder beside the app. Settings use your normal BoardLens app-data folder.\n')
-  destination=out/('BoardLens-Autoplay-Test-Windows-x64.zip' if args.lab else 'BoardLens-Windows-x64.zip')
+  destination=out/'BoardLens-Windows-x64.zip'
   with zipfile.ZipFile(destination,'w',zipfile.ZIP_STORED) as z:
    for p in app.rglob('*'):
     if p.is_file():z.write(p,(Path('BoardLens')/p.relative_to(app)).as_posix())

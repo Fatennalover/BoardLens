@@ -1,21 +1,21 @@
-BoardLens Browser Reader 3.4 (optional)
+BoardLens Browser Reader for Chrome and Edge
 
-Chrome/Edge Extensions → Developer mode → Load unpacked → this folder.
-BoardLens → Browser setup → Enable browser reader → Copy pairing key.
-Open this extension's popup, paste the key and Connect. Reload the chess tab.
+1. Extract the ZIP. Open chrome://extensions or edge://extensions.
+2. Turn on Developer mode and choose Load unpacked. Select the BrowserReader folder.
+3. In BoardLens, open Browser setup, enable the reader and copy its key.
+4. Open the BoardLens icon in the browser toolbar. Under Desktop connection,
+   paste the key and press Connect. Reload your chess tab.
 
-Reads visible Chess.com board positions (including 3D projected squares) and
-Lichess 2D piece data. Sends only positions to 127.0.0.1:8788 on this computer.
-Draws arrows without blocking the mouse. Desktop autoplay can play moves on
-Chess.com bot games and standard Lichess Analysis when armed in BoardLens.
-Only the chess websites and loopback service are allowed in its manifest.
-Keep Auto suggest enabled and the chess tab visible. After an update, reload
-the extension and the chess tab. Autoplay needs BoardLens 2.18.4 or later.
-Turn the desktop toggle off to close the reader. Normal screen scanning works
-without this extension. Remove it through Chrome/Edge Extensions to uninstall.
+The toolbar menu controls Coach mode, the number of moves shown and the
+extension's board arrows. Coach mode uses your desktop engine. Open BoardLens
+2.19.12 or later, select Live screen and use Suggest or Auto suggest while the
+board is visible. Play moves yourself and use coaching where it is allowed.
+The browser connects to BoardLens on this computer over 127.0.0.1:8788.
 
-This adapter depends on current site interfaces and may need updates. Arbitrary
-3D screenshots, other 3D apps and nonstandard variants are not covered.
+Boards and overlays
 
-Engine → Browser evaluation controls the on-page bar independently. Drag its
-body to move it, drag the bottom-right corner to resize, and tap ↔ to rotate.
+Browser Reader supports visible Chess.com boards, including supported 3D
+layouts, and Lichess 2D boards. Engine → Browser evaluation controls the
+on-page evaluation bar. Drag the bar to reposition it, drag the corner to
+resize it, or use the rotate button. Normal screen scanning also works
+without the extension.

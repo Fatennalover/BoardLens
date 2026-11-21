@@ -26,14 +26,14 @@ class BrowserSetup(QDialog):
         self.button(install, "Download Browser Reader ZIP…", self.download_extension)
 
         pair = self.step(layout, "2. Pair with BoardLens",
-                         "Enable the reader, then copy the pairing key. Open BoardLens Browser Reader from the browser toolbar or its Extensions menu, paste the key, then click Connect.")
+                         "Enable the reader, then copy the pairing key. Open BoardLens Browser Reader from the browser toolbar or its Extensions menu, open Desktop connection, paste the key, then click Connect.")
         buttons = QHBoxLayout()
         self.enable = self.button(buttons, "Enable browser reader", self.enable_reader)
         self.key = self.button(buttons, "Copy pairing key", self.copy_key)
         pair.addLayout(buttons)
 
         finish = self.step(layout, "3. Open a board",
-                           "Reload the chess tab. In BoardLens, select Live screen. The connection status below updates as the reader sees your board.")
+                           "Reload the chess tab. In BoardLens, select Live screen. Use the browser toolbar menu to enable Coach.")
         self.status = QLabel()
         self.status.setWordWrap(True)
         finish.addWidget(self.status)

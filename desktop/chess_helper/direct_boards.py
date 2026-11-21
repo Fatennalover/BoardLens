@@ -31,15 +31,13 @@ def verified_history(fen, san_moves):
     return board if board.fen() == fen else None
 
 
-PLAY_OFFER_SECONDS=.65
-PLAY_AUTH_MS=225
 FRAME_SECONDS=.5
 
 
 class BrowserReader:
-    """Return analysis and test commands to the paired browser tab."""
+    """Return analysis to the paired browser tab."""
     def __init__(self,port=8788):
-        self.lock=threading.Lock();self.frames={};self.dashboard={};self.hints={};self.evaluation_visible=None;self.pending_play={};self.claimed_play={};self.rejected_at=0.;self.token=secrets.token_urlsafe(32)
+        self.lock=threading.Lock();self.frames={};self.dashboard={};self.hints={};self.evaluation_visible=None;self.rejected_at=0.;self.token=secrets.token_urlsafe(32)
         secret=data_dir()/'browser-reader-key'
         if secret.is_file() and len(secret.read_text().strip())>=40:self.token=secret.read_text().strip()
         else:secret.write_text(self.token);secret.chmod(0o600)
@@ -65,11 +63,11 @@ class BrowserReader:
                     payload=json.loads(self.rfile.read(length))
                     if not isinstance(payload,dict):
                         raise ValueError('Invalid browser message.')
-                    if self.path=='/claim-play':
-                        self.reply(200,{'play':owner.claim_play(payload)})
-                    elif self.path=='/boards':
-                        frames=owner.accept(payload)
-                        self.reply(200,{'ok':True,'hints':owner.hints_for_post(frames),'evaluation_visible':owner.evaluation_visible})
+                    if self.path=='/boards':
+                        owner.accept(payload)
+                        with owner.lock:
+                            response={'ok':True,'hints':dict(owner.hints),'evaluation_visible':owner.evaluation_visible}
+                        self.reply(200,response)
                     else:
                         self.reply(404,{'error':'Unknown reader endpoint.'})
                 except (ValueError,TypeError,KeyError) as exc:self.reply(400,{'error':str(exc)})
@@ -113,13 +111,8 @@ class BrowserReader:
             kind=item.get('practice_kind','analysis')
             if kind not in ('analysis','computer-bot'):
                 read.practice_id=None
-            white=item.get('practice_white')
-            read.practice_white=(white if kind=='computer-bot' and isinstance(white,bool) else None)
-            if kind=='computer-bot' and read.practice_white is None:
-                read.practice_id=None
             read.practice_kind=kind if read.practice_id else None
             read.practice_focused=bool(read.practice_id and item.get('practice_focused') is True)
-            read.play_protocol=item.get('play_protocol') if read.practice_id else None
             seen.add(index)
             frames.append((identity,'Browser reader',read,256,256))
         invalid = bool(boards and not frames)
@@ -139,74 +132,6 @@ class BrowserReader:
         if invalid:
             raise ValueError('The connector sent no valid positions.')
         return frames
-
-    @staticmethod
-    def can_offer(command,read):
-        return (read.play_protocol==2 and read.practice_focused and read.practice_id==command['page']
-                and read.visible_fen==command['fen'] and not read.game_result
-                and time.monotonic()-read.received_at<=FRAME_SECONDS)
-
-    def offer_autoplay(self, read, move):
-        """Advertise a short-lived offer. The browser must claim it before it can move."""
-        if not read.practice_id or not read.exact_fen or read.play_protocol!=2:
-            return None
-        source=read.source_id
-        command={'id':secrets.token_hex(16),'page':read.practice_id,'fen':read.visible_fen,'move':move.uci()}
-        with self.lock:
-            self.pending_play[source]=(time.monotonic()+PLAY_OFFER_SECONDS,command)
-            self.claimed_play.pop(source,None)
-        return command['id']
-
-    def clear_autoplay(self, source):
-        with self.lock:
-            self.pending_play.pop(source,None)
-            self.claimed_play.pop(source,None)
-
-    def claim_play(self,payload):
-        source=payload.get('source')
-        index=payload.get('index')
-        if not isinstance(source,str) or type(index) is not int or not 0<=index<3:
-            return None
-        identity=f'browser:{source}:{index}'
-        with self.lock:
-            pending=self.pending_play.get(identity)
-            if not pending:
-                return None
-            expires,command=pending
-            if expires<time.monotonic():
-                self.pending_play.pop(identity)
-                return None
-            frames=self.frames.get(source,(0,()))[1]
-            read=next((frame[2] for frame in frames if frame[0]==identity),None)
-            if (not read or any(payload.get(key)!=command[key] for key in ('id','page','fen'))
-                    or not self.can_offer(command,read)):
-                return None
-            self.pending_play.pop(identity)
-            self.claimed_play[identity]=command['id']
-            return {**command,'expires':int(time.time()*1000)+PLAY_AUTH_MS}
-
-    def play_state(self,source,command_id):
-        with self.lock:
-            if self.claimed_play.get(source)==command_id:
-                return 'claimed'
-            pending=self.pending_play.get(source)
-            if pending and pending[0]>=time.monotonic() and pending[1]['id']==command_id:
-                return 'offered'
-        return 'expired'
-
-    def hints_for_post(self, frames):
-        now=time.monotonic()
-        with self.lock:
-            hints=dict(self.hints)
-            for source,pending in tuple(self.pending_play.items()):
-                if pending[0]<now:
-                    self.pending_play.pop(source)
-            for source,_,read,_,_ in frames:
-                pending=self.pending_play.get(source)
-                if pending and self.can_offer(pending[1],read):
-                    hints[source]={**hints.get(source,{}),'fen':read.visible_fen,'autoplay_offer':pending[1],
-                                   'arrows':hints.get(source,{}).get('arrows',[])}
-            return hints
 
     def suppress_screen_fallback(self):
         with self.lock:

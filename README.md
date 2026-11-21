@@ -1,5 +1,5 @@
 <p align="center"><img src="docs/brand/banner.png" alt="BoardLens" width="660"></p>
-<p align="center"><strong>Your best move. On every screen.</strong><br>Open-source chess cheating and analysis software for desktop and Android.</p>
+<p align="center"><strong>Your best move. On every screen.</strong><br>Open-source chess analysis software for desktop and Android.</p>
 <p align="center"><a href="#download--start"><strong>Download BoardLens</strong></a> · <a href="#features">Features</a> · <a href="#phone--tablet">Mobile</a> · <a href="docs/ENGINES.md">Engines</a></p>
 <p align="center"><img alt="License GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-57368d?style=flat-square"> <img alt="Mac and Windows" src="https://img.shields.io/badge/desktop-macOS%20%7C%20Windows-57368d?style=flat-square"> <img alt="Android companion" src="https://img.shields.io/badge/mobile-Android%20companion%20%2B%20phone%20scanner-c4a1f2?style=flat-square"></p>
 
@@ -21,7 +21,7 @@ Open **Review game** to analyze your recorded moves with Stockfish or another co
 
 ![BoardLens Game review with a clickable move list, evaluation and an arrow showing checkmate](docs/images/desktop-game-review.png)
 
-### Android 1.9.14
+### Android 1.9.15
 
 <p align="center"><img src="docs/images/android-practice.png" alt="Android Practice board with a side-to-move picker and a Stockfish arrow" width="280"> <img src="docs/images/android-game-review.png" alt="Android Game Review with a selectable engine continuation" width="280"></p>
 
@@ -53,10 +53,10 @@ Open the [latest BoardLens release](https://github.com/Fatennalover/BoardLens/re
 
 | Device | Download | Start |
 | --- | --- | --- |
-| Mac (Apple Silicon) | [BoardLens 2.19.11 ZIP](https://github.com/Fatennalover/BoardLens/releases/latest/download/BoardLens-Mac-AppleSilicon.zip) | Unzip, then open **BoardLens.app**. macOS 14+. |
-| Mac (Intel) | [BoardLens 2.19.11 DMG](https://github.com/Fatennalover/BoardLens/releases/latest/download/BoardLens-Mac-Intel.dmg) | Open the disk image and drag **BoardLens** into **Applications**. macOS 14+. |
-| Windows 10/11 (64-bit) | [BoardLens 2.19.11 ZIP](https://github.com/Fatennalover/BoardLens/releases/latest/download/BoardLens-Windows-x64.zip) | Extract the entire folder, then open **BoardLens.exe**. Keep Resources beside it. |
-| Android | [BoardLens 1.9.14 APK](https://github.com/Fatennalover/BoardLens/releases/latest/download/BoardLens-Companion-Android.apk) | Open **Practice and review** or **Phone screen**. Use **Engine library** to install Stockfish and optional models. |
+| Mac (Apple Silicon) | [BoardLens 2.19.12 ZIP](https://github.com/Fatennalover/BoardLens/releases/latest/download/BoardLens-Mac-AppleSilicon.zip) | Unzip, then open **BoardLens.app**. macOS 14+. |
+| Mac (Intel) | [BoardLens 2.19.12 DMG](https://github.com/Fatennalover/BoardLens/releases/latest/download/BoardLens-Mac-Intel.dmg) | Open the disk image and drag **BoardLens** into **Applications**. macOS 14+. |
+| Windows 10/11 (64-bit) | [BoardLens 2.19.12 ZIP](https://github.com/Fatennalover/BoardLens/releases/latest/download/BoardLens-Windows-x64.zip) | Extract the entire folder, then open **BoardLens.exe**. Keep Resources beside it. |
+| Android | [BoardLens 1.9.15 APK](https://github.com/Fatennalover/BoardLens/releases/latest/download/BoardLens-Companion-Android.apk) | Open **Practice and review** or **Phone screen**. Use **Engine library** to install Stockfish and optional models. |
 | iPhone / iPad | Phone browser, or unsigned iOS source ZIP | Open the desktop companion address. Native source needs Xcode and your signing setup. |
 
 The desktop app includes a private Python runtime, recognition models and Stockfish 19. No Terminal or Python installation is required. The first launch prepares its files in your user profile; later launches reuse them. Settings and optional engines remain in the normal BoardLens app-data folder, including when upgrading from the source version. Optional engines download only when selected. The Mac apps are ad-hoc signed, not notarized; Windows is unsigned. [Desktop installation and build details →](docs/DESKTOP-APPS.md)
@@ -149,7 +149,7 @@ The desktop and Android app versions are tracked separately. Check your distribu
 
 The validation report records **206 automated desktop tests**, plus packaged app tests on Apple Silicon macOS, Intel macOS and a Windows CI runner. Each packaged test launches the actual GUI app with its private runtime, recognizes a fixture and asks bundled Stockfish for a legal move. Windows verifies no console window. Android 1.8.7 was tested on a Android device: all 19 installed engines returned a legal move, offline arrows accepted taps through the overlay and updated after a move, and the untouched Chess.com analysis board in Chrome produced arrows. This does not establish every native/web game layout; see the [mobile test report](mobile/TEST-REPORT.txt) for coverage and limits. A Windows physical desktop and physical iOS devices have not been tested. The fixed desktop screen-polling target is 75 ms; recognition, engine thinking, display capture and network time still affect end-to-end latency. Current native desktop OS pixel capture has not been reverified; fixture tests are not proof of capture permission/behavior.
 
-Pixel reads need a clear board and cannot always recover turn, castling or en-passant history. Use exact FEN or a supported direct reader when that metadata matters. Threat checks and engine explanations are estimates. Desktop autoplay supports Practice, Chess.com bot games and standard Lichess Analysis. Android provides manual analysis. Use assistance where your game mode permits it.
+Pixel reads need a clear board and cannot always recover turn, castling or en-passant history. Use exact FEN or a supported direct reader when that metadata matters. Threat checks and engine explanations are estimates. Use assistance where your game mode permits it.
 
 ## Build & contribute
 
@@ -187,9 +187,9 @@ If an older entry is switched on but access remains denied, remove the old
 BoardLens entry, add Applications → BoardLens.app, enable it and reopen the app.
 Source updates preserve the installed native host. See [installer details](desktop/packaging/INSTALLER.md).
 
-## Desktop autoplay
+## Browser Coach
 
-The desktop app starts with autoplay off. Open a Chess.com bot game or standard Lichess Analysis using Browser Reader 3.4, then open **Autoplay**, select a color and press **Start autoplay**. It pauses while you are away and resumes when you return to the confirmed target. The built-in Practice board also supports autoplay. [Setup and troubleshooting](docs/AUTOPLAY-TEST.md).
+Pair Browser Reader with BoardLens, then open the extension from the Chrome or Edge toolbar. Enable **Show Coach on the page** and choose how many suggestions to display. Coach explains moves and likely replies using the engine selected in BoardLens. Use **Live screen** and **Suggest** or **Auto suggest** in the desktop app while the board is visible. On Android, tap **Coach** in the built-in chess browser, Practice, or Game Review and choose how many moves to show. The Android coach uses the engine on the phone.
 
 The board has an analysis options bar with Only my color, Lock move, Steady arrows and Arrows. The Moves tab uses available browser history and confirmed positions to name recognized openings using the [Lichess CC0 opening dataset](https://github.com/lichess-org/chess-openings/tree/3ba6b20d31b2e6125cb0e6a2e792f400717d9d39).
 

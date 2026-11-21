@@ -19,7 +19,7 @@ int main(int argc,const char *argv[]) {
         NSString *resources=NSBundle.mainBundle.resourcePath;
         NSDictionary *meta=[NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfFile:[resources stringByAppendingPathComponent:@"metadata.json"]] options:0 error:nil];
         if(!meta){fail(@"The app package is incomplete. Download the complete Mac app again.");return 1;}
-        NSString *base=[NSHomeDirectory() stringByAppendingPathComponent:[meta[@"autoplay_test"] boolValue]?@"Library/Application Support/BoardLensLab/native":@"Library/Application Support/BoardLens/native"];
+        NSString *base=[NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/BoardLens/native"];
         if(smoke && getenv("BOARDLENS_ISOLATED_BOOTSTRAP"))base=[NSString stringWithUTF8String:getenv("BOARDLENS_ISOLATED_BOOTSTRAP")];
         BOOL bundled=[meta[@"layout"] isEqualToString:@"bundled-v2"];
         NSString *key=meta[@"payload_sha256"];

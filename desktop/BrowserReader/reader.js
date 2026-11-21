@@ -1,4 +1,4 @@
-// Read board data in the page world and play moves on supported practice boards.
+// Read board data in the page world.
 (()=>{
  const names={pawn:'p',knight:'n',bishop:'b',rook:'r',queen:'q',king:'k'};
  function fenOf(map,turn='w'){
@@ -17,7 +17,7 @@
   if(location.hostname!=='lichess.org'||!/^\/analysis(?:\/standard)?(?:\/|$)/.test(location.pathname))return null;
   if(board!==document.querySelector('.analyse__board cg-board'))return null;
   const api=window.lichess?.analysis,ground=window.lichess?.chessground?.(),game=api?.data?.()?.game;
-  if(game?.id!=='synthetic'||game.variant?.key!=='standard'||typeof api.playUci!=='function'||!ground)return null;
+  if(game?.id!=='synthetic'||game.variant?.key!=='standard'||!ground)return null;
   const input=[...document.querySelectorAll('.analyse__underboard .copyables .pair')]
    .find(pair=>pair.querySelector('label')?.textContent.trim()==='FEN')?.querySelector('input.copyable');
   if(!input||document.activeElement===input)return null;
@@ -30,58 +30,14 @@
   if(board?.localName!=='wc-chess-board')return null;
   const game=board.game,options=game?.getOptions?.();
   if(options?.id!=='play-computer'||game.getVariant?.()!=='chess'||game.getMode?.()?.name!=='playing'||
-     !game.isAtEndOfLine?.()||game.isGameOver?.()||typeof game.move!=='function')return null;
-  const side=game.getPlayingAs?.(),fen=game.getFEN?.();
-  if((side!==1&&side!==2)||typeof fen!=='string')return null;
-  return {fen,kind:'computer-bot',game,white:side===1};
+     !game.isAtEndOfLine?.()||game.isGameOver?.())return null;
+  const fen=game.getFEN?.();
+  if(typeof fen!=='string')return null;
+  return {fen,kind:'computer-bot',game};
  }
  function practicePosition(board){
   return computerGame(board)||lichessAnalysis(board);
  }
- function canEnterMove(practice,move){
-  const from=move.slice(0,2),to=move.slice(2,4);
-  if(practice.kind==='computer-bot'){
-   const game=practice.game,turn=practice.fen.split(' ')[1];
-   if(turn!==(practice.white?'w':'b')||game.getOptions().enabled!==true||
-      game.isDragging?.()||!game.getMode().isAllowedToMove?.(from))return false;
-   const input={from,to,userGenerated:true};
-   if(move.length===5)input.promotion=move[4];
-   if(!game.isLegalMove(input))return false;
-   return ()=>game.move(input);
-  }
-  const {api,ground}=practice;
-  const piece=ground.state.pieces.get(from),valid=ground.state.movable.dests?.get(from)||[];
-  if(piece?.color!==ground.state.turnColor)return false;
-  // Lichess may list castling as king-to-rook while UCI uses king-to-destination.
-  const castle={e1g1:'h1',e1c1:'a1',e8g8:'h8',e8c8:'a8'}[move];
-  if(!valid.includes(to)&&!(piece.role==='king'&&castle&&valid.includes(castle)))return false;
-  return ()=>api.playUci(move);
- }
- let lastCommand;
- function playPractice(command){
-  if(!command||typeof command.page!=='string'||!command.id||command.id===lastCommand||
-     !Number.isFinite(command.expires)||command.expires<Date.now()||
-     !/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(command.move)||
-     document.visibilityState!=='visible'||!document.hasFocus())return false;
-  if(document.querySelector('dialog[open]'))return false;
-  const selector=location.hostname==='lichess.org'?'.analyse__board cg-board':'wc-chess-board';
-  const target=[...document.querySelectorAll(selector)].find(board=>{
-   if(boardIds.get(board)?.id!==command.page||!fullyVisible(board.getBoundingClientRect()))return false;
-   const practice=practicePosition(board);
-   return practice&&practice.fen===command.fen&&boardIds.get(board).owner===(practice.game||practice.api);
-  });
-  if(!target)return false;
-  const submit=canEnterMove(practicePosition(target),command.move);
-  if(!submit)return false;
-  lastCommand=command.id;
-  submit();
-  return true;
- }
- window.boardLensTryPracticeMove=playPractice;
- window.addEventListener('message',event=>{
-  if(event.source===window&&event.origin===location.origin&&event.data?.boardlensPlay)
-   playPractice(event.data.boardlensPlay);
- });
  function fullyVisible(rect){
   return rect.width>=150&&rect.height>=150&&rect.left>=0&&rect.top>=0&&rect.right<=innerWidth+1&&rect.bottom<=innerHeight+1;
  }
@@ -155,7 +111,7 @@
    const id=boardId(e,practice?.game||practice?.api||g||location.pathname);
    const sans=exact?g?.getHistorySANs?.():null;
    const moves=Array.isArray(sans)&&sans.length<=600?sans:undefined;
-   return {game_result,fen,exact,board_id:id,moves,practice_id:practice?boardId(e,practice.game||practice.api):null,practice_kind:practice?.kind,practice_white:practice?.white,practice_focused:!!practice&&document.hasFocus(),turn_hint:turnHint,white_bottom:bottom,index,points,rect:{x:rect.x,y:rect.y,width:rect.width,height:rect.height}};
+   return {game_result,fen,exact,board_id:id,moves,practice_id:practice?boardId(e,practice.game||practice.api):null,practice_kind:practice?.kind,practice_focused:!!practice&&document.hasFocus(),turn_hint:turnHint,white_bottom:bottom,index,points,rect:{x:rect.x,y:rect.y,width:rect.width,height:rect.height}};
    } catch {return null}
   }).filter(Boolean);
  }

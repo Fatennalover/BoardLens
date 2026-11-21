@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import sys
 
-from PySide6.QtCore import QObject, QTimer, Signal
+from PySide6.QtCore import QObject, Signal
 
 from .core import validate_keys
 
@@ -39,54 +39,3 @@ class Hotkeys(QObject):
         if self.listener:
             self.listener.stop()
             self.listener = None
-
-
-class ClickMove(QObject):
-    done = Signal()
-    failed = Signal(str)
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.timer = QTimer(self)
-        self.timer.setSingleShot(True)
-        self.timer.timeout.connect(self._finish)
-        self.active = False
-        self.target = None
-        self.destination = None
-        self.guard = None
-
-    def start(self, source, destination, interval_ms=35, guard=None):
-        if self.active:
-            raise ValueError("A move is already being sent.")
-        from .window_clicks import window_clicks
-        self.target = window_clicks(source,destination)
-        self.destination = destination
-        self.guard = guard
-        self.active = True
-        try:
-            self.target.click(source)
-            self.timer.start(max(1,interval_ms))
-        except Exception:
-            self.cancel()
-            raise
-
-    def _finish(self):
-        if not self.active:
-            return
-        if self.guard and not self.guard():
-            self.cancel()
-            return
-        try:
-            self.target.click(self.destination)
-        except Exception as exc:
-            self.cancel()
-            self.failed.emit(str(exc))
-            return
-        self.cancel()
-        self.done.emit()
-
-    def cancel(self):
-        self.timer.stop()
-        self.active = False
-        self.target = None
-        self.guard = None

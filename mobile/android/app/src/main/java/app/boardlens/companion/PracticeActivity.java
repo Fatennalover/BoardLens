@@ -184,7 +184,10 @@ public final class PracticeActivity extends Activity {
       page.addView(ui.button("Review game", false, this::openReview));
     }
     ui.gap(page, 8);
-    page.addView(ui.button("Move advantage", false, this::showMoveAdvantage));
+    coach = new CoachPanel(this, ui, settings);
+    row(page, ui.button("Coach", false, () -> coach.options(this::render)),
+        ui.button("Move advantage", false, this::showMoveAdvantage));
+    page.addView(coach.view(), new LinearLayout.LayoutParams(-1, ui.dp(182)));
     MobileUi.inset(this, root);
     setContentView(root);
     updateTurn();
@@ -217,6 +220,7 @@ public final class PracticeActivity extends Activity {
 
   private PracticeLine reviewLine() { return showingContinuation ? continuation : played; }
   private MoveAdvantageDialog moveAdvantage;
+  private CoachPanel coach;
 
   private void showMoveAdvantage() {
     if (moveAdvantage == null) moveAdvantage = new MoveAdvantageDialog(this);
@@ -266,6 +270,9 @@ public final class PracticeActivity extends Activity {
     evaluation.setVisibility(settings.evaluationEnabled() ? View.VISIBLE : View.GONE);
     evaluation.setProgress(Math.round(share * 1000), true);
     score.setText(displayed);
+    coach.render(board, result.isEmpty() ? chosen : null, null, true,
+        result.isEmpty() ? (reviewing ? "Analyze this game to get coaching." :
+            "Use Suggest to get coaching for this position.") : result);
     score.setVisibility(displayed.isEmpty() ? View.GONE : View.VISIBLE);
     engine.setText(EngineCatalog.get(engineId).name());
     engine.setEnabled(!busy);

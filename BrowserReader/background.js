@@ -20,11 +20,10 @@ chrome.runtime.onMessage.addListener((m,sender,respond)=>{
   if(m.type==='reconnect')retryAt=0;
   (async()=>{if(Date.now()>=retryAt)await desktop('/hints');return connection})().then(respond);return true;
  }
- if(!['boards','claim-play'].includes(m.type)||!sender.tab||sender.frameId!==0||!/^https:\/\/(www\.chess\.com|lichess\.org)\//.test(sender.url||''))return;
+ if(m.type!=='boards'||!sender.tab||sender.frameId!==0||!/^https:\/\/(www\.chess\.com|lichess\.org)\//.test(sender.url||''))return;
  (async()=>{
   if(Date.now()<retryAt)return {error:connection.message};
   const source=String(sender.tab.id);
-  if(m.type==='claim-play')return desktop('/claim-play',{source,index:m.index,id:m.id,page:m.page,fen:m.fen});
   const focused=typeof m.focused==='boolean'?m.focused&&sender.tab.active!==false:undefined;
   const posted=await desktop('/boards',{source,boards:m.boards,focused,dashboard:m.dashboard===true});if(posted.error)return posted;
   const hints=posted.hints??await desktop('/hints');if(hints.error)return hints;

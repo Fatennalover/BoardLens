@@ -26,8 +26,7 @@ def main():
         except (AttributeError, OSError):
             pass
     from .updater import apply_pending_on_launch,AutomaticUpdates
-    from .autoplay_test import enabled as lab_enabled
-    if not lab_enabled() and apply_pending_on_launch():return
+    if apply_pending_on_launch():return
     from PySide6.QtWidgets import QApplication
     from .app import MainWindow
     app = QApplication(sys.argv)
@@ -63,7 +62,7 @@ def main():
         from .native_smoke import begin
         from PySide6.QtCore import QTimer
         QTimer.singleShot(100,lambda:begin(app,window,smoke))
-    elif not lab_enabled():window.automatic_updates=AutomaticUpdates(window)
+    else:window.automatic_updates=AutomaticUpdates(window)
     import signal
     signal.signal(signal.SIGTERM,lambda *_:(window.close(),app.quit()))
     diagnostics=os.environ.get('BOARDLENS_DIAGNOSTICS_PATH')

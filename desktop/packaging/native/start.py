@@ -12,9 +12,6 @@ if sys.platform=='win32':
             super().__init__(*args,**kwargs)
     subprocess.Popen=QuietPopen
 root=Path(os.environ['BOARDLENS_NATIVE_DATA']);app=root/'application';metadata=json.loads((package/'metadata.json').read_text())
-if metadata.get('autoplay_test'):
-    os.environ['BOARDLENS_AUTOPLAY_LAB']='1'
-    os.environ.setdefault('BOARDLENS_DATA_DIR',str(root.parent))
 def version(path):
     try:return tuple(map(int,re.search(r'__version__\s*=\s*"([0-9.]+)"',path.read_text()).group(1).split('.')))
     except (OSError,AttributeError,ValueError):return (0,0,0)

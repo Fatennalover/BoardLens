@@ -70,14 +70,6 @@
  function stillCurrent(requested,revision){
   return requested===lastRequested&&revision===view&&document.visibilityState==='visible';
  }
- async function claimMove(offer,index,requested,revision){
-  if(!document.hasFocus())return;
-  try{
-   const result=await chrome.runtime.sendMessage({type:'claim-play',index,id:offer.id,page:offer.page,fen:offer.fen});
-   if(result?.play&&stillCurrent(requested,revision)&&document.hasFocus())
-    window.postMessage({boardlensPlay:result.play},location.origin);
-  }catch{/* The next observation will confirm the move or pause autoplay. */}
- }
  function svg(tag,attributes){
   const node=document.createElementNS(ns,tag);
   for(const [name,value] of Object.entries(attributes))node.setAttribute(name,value);
@@ -114,15 +106,21 @@
  window.addEventListener('message',async event=>{
   if(event.source!==window||event.origin!==location.origin||!event.data?.boardlensRead)return;
   const boards=event.data.boards;if(!Array.isArray(boards)||boards.length>3)return;
-  if(document.visibilityState!=='visible'){layer.replaceChildren();clearEvaluations();return}
+  if(document.visibilityState!=='visible'){layer.replaceChildren();clearEvaluations();boardLensCoach.clear();return}
   const revision=view,requested=JSON.stringify(boards.map(b=>[b.index,b.board_id,b.fen,b.white_bottom,b.practice_id,b.practice_focused]));
-  if(requested!==lastRequested){layer.replaceChildren();lastRequested=requested;}
+  const coachBoard=boards.find(board=>board.index===0)||boards[0];
+  if(requested!==lastRequested){
+   layer.replaceChildren();lastRequested=requested;
+   if(coachBoard)boardLensCoach.update(null);
+   else boardLensCoach.clear();
+  }
   if(busy)return;busy=true;
   try{
-   const response=await chrome.runtime.sendMessage({type:'boards',focused:document.hasFocus(),dashboard:event.data.dashboard===true,boards:boards.map(b=>({index:b.index,board_id:b.board_id,moves:b.moves,game_result:b.game_result,fen:b.fen,exact:b.exact,play_protocol:2,practice_id:b.practice_id,practice_kind:b.practice_kind,practice_white:b.practice_white,practice_focused:b.practice_focused,turn_hint:b.turn_hint,white_bottom:b.white_bottom}))});
+   const response=await chrome.runtime.sendMessage({type:'boards',focused:document.hasFocus(),dashboard:event.data.dashboard===true,boards:boards.map(b=>({index:b.index,board_id:b.board_id,moves:b.moves,game_result:b.game_result,fen:b.fen,exact:b.exact,practice_id:b.practice_id,practice_kind:b.practice_kind,practice_focused:b.practice_focused,turn_hint:b.turn_hint,white_bottom:b.white_bottom}))});
    if(!stillCurrent(requested,revision))return;
-   if(!response||response.error){if(response?.repair){notice.textContent='BoardLens: '+response.error;notice.hidden=false}if(Date.now()-last>1500){layer.replaceChildren();clearEvaluations()}return}notice.hidden=true;last=Date.now();
+   if(!response||response.error){if(response?.repair){notice.textContent='BoardLens: '+response.error;notice.hidden=false}if(Date.now()-last>1500){layer.replaceChildren();clearEvaluations();boardLensCoach.clear()}return}notice.hidden=true;last=Date.now();
    const fragments=[];
+   let coachHint;
    for(const [id,panel] of evalPanels){
     if(response.evaluation_visible===false||!boards.some(b=>b.index===id&&b.board_id===panel.boardId)){
      panel.observer?.disconnect();panel.root.remove();evalPanels.delete(id);
@@ -130,10 +128,7 @@
    }
    for(const b of boards){
     const i=b.index,hint=Object.entries(response).find(([k,v])=>k.endsWith(':'+i)&&v.fen===b.fen);if(!hint)continue;
-    const offer=hint[1].autoplay_offer;
-    if(offer?.page===b.practice_id&&b.practice_focused)
-     await claimMove(offer,i,requested,revision);
-    if(!stillCurrent(requested,revision))return;
+    if(b===coachBoard)coachHint=hint[1];
     if(hint[1].evaluation) evaluation(i,b,hint[1].evaluation);
     else if(Object.hasOwn(hint[1],'evaluation')&&evalPanels.has(i)){
      const panel=evalPanels.get(i);panel.observer?.disconnect();panel.root.remove();evalPanels.delete(i);
@@ -145,19 +140,21 @@
      if(m.kind!=='attack'){circle.setAttribute('stroke',m.color);circle.setAttribute('stroke-width','2')}
      fragments.push(circle);
     }
-    fragments.push(...arrowLayers(b,hint[1]));
+    if(boardLensCoach.showArrows)fragments.push(...arrowLayers(b,hint[1]));
    }
    layer.replaceChildren(...fragments);
-  }catch(error){if(String(error).includes('context invalidated')){notice.textContent='BoardLens: reload this chess tab to reconnect the reader.';notice.hidden=false}if(Date.now()-last>1500){layer.replaceChildren();clearEvaluations()}}finally{busy=false}
+   if(coachBoard)boardLensCoach.update(coachHint?.coach, Boolean(coachHint));
+   else boardLensCoach.clear();
+  }catch(error){if(String(error).includes('context invalidated')){notice.textContent='BoardLens: reload this chess tab to reconnect the reader.';notice.hidden=false}if(Date.now()-last>1500){layer.replaceChildren();clearEvaluations();boardLensCoach.clear()}}finally{busy=false}
  });
  function releaseBoard(){
   chrome.runtime.sendMessage({type:'boards',focused:false,boards:[]}).catch(()=>{});
  }
- window.addEventListener('blur',()=>{view++;releaseBoard()});
+ window.addEventListener('blur',()=>{view++;releaseBoard();boardLensCoach.clear()});
  window.addEventListener('focus',()=>{view++});
  document.addEventListener('visibilitychange',()=>{
   view++;
-  layer.replaceChildren();clearEvaluations();
+  layer.replaceChildren();clearEvaluations();boardLensCoach.clear();
   if(document.visibilityState!=='visible')
    releaseBoard();
  });

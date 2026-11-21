@@ -4,7 +4,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 FILES = (
     "manifest.json", "background.js", "reader.js", "content.js",
-    "popup.html", "popup.js", "README.txt",
+    "coach.js", "popup.html", "popup.js", "README.txt",
 )
 
 

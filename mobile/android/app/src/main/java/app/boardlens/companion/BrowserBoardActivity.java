@@ -39,11 +39,16 @@ public final class BrowserBoardActivity extends Activity {
     private boolean whiteBottom=true;
     private ChessPosition position;
     private MoveAdvantageDialog moveAdvantage;
+    private CoachPanel coach;
     private PhoneEngine.Result recommendation;
     private LocalEngines.Evaluated evaluation;
     private final Runnable observeSettings = () -> lastKey="";
     private final SharedPreferences.OnSharedPreferenceChangeListener preferenceListener = (prefs, key) -> {
         if (FloatingControls.BROWSER_ENABLED.equals(key)) return;
+        if (CoachPanel.PREFERENCE.equals(key)) {
+            renderCoach();
+            return;
+        }
         if (ArrowEngines.isColorKey(key) || "arrows".equals(key) || "onlyMine".equals(key)
                 || "screen_evaluation".equals(key)) publish();
         else if (ArrowEngines.PREF.equals(key) && running && analysisEnabled && position != null) {
@@ -83,11 +88,15 @@ public final class BrowserBoardActivity extends Activity {
         LinearLayout boardStatus=new LinearLayout(this);
         boardStatus.setGravity(android.view.Gravity.CENTER_VERTICAL);
         boardStatus.addView(status,new LinearLayout.LayoutParams(0,-2,1));
+        coach=new CoachPanel(this,ui,settings);
+        boardStatus.addView(ui.button("Coach",false,()->coach.options(this::renderCoach)));
         boardStatus.addView(ui.button("Move advantage",false,()->{
             if(moveAdvantage==null)moveAdvantage=new MoveAdvantageDialog(this);
             moveAdvantage.show(position);
         }));
         root.addView(boardStatus);
+        root.addView(coach.view(),new LinearLayout.LayoutParams(-1,ui.dp(150)));
+        renderCoach();
         page=new WebView(this);
         page.setBackgroundColor(Color.rgb(29,33,31));
         page.getSettings().setJavaScriptEnabled(true);
@@ -277,6 +286,7 @@ public final class BrowserBoardActivity extends Activity {
         if(board==null||!board.valid()||board.legal().isEmpty()){
             reset();status.setText("No legal move on this board");return;
         }
+        if(position==null||!position.fen().equals(board.fen()))evaluation=null;
         position=board;
         if(moveAdvantage!=null)moveAdvantage.update(board);
         recommendation=null;
@@ -335,7 +345,15 @@ public final class BrowserBoardActivity extends Activity {
         status.setText(text);
     }
 
+    private void renderCoach() {
+        coach.render(position, recommendation, settings.evaluationEnabled() ? evaluation : null,
+                position != null && (!settings.onlyMine() || position.white == whiteBottom),
+                position == null ? "Open a visible chessboard to get coaching." :
+                "Waiting for engine suggestions.");
+    }
+
     private void publish() {
+        renderCoach();
         if(!analysisEnabled||!loaded||position==null)return;
         try {
             JSONArray arrows=new JSONArray();
@@ -363,6 +381,7 @@ public final class BrowserBoardActivity extends Activity {
         generation.incrementAndGet();moves.cancel();evaluator.cancel();extraEngines.cancel();
         position=null;recommendation=null;evaluation=null;lastKey="";
         if(moveAdvantage!=null)moveAdvantage.update(null);
+        if(coach!=null)renderCoach();
         if(loaded&&page!=null)page.evaluateJavascript("window.boardLensLocalHints=null",null);
     }
     @Override protected void onStart(){

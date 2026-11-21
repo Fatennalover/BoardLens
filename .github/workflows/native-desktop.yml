@@ -7,11 +7,6 @@ on:
         required: false
         default: ''
         type: string
-      edition:
-        description: Build edition
-        default: normal
-        type: choice
-        options: [normal, autoplay-test]
       platform:
         description: Platform to build
         required: false
@@ -22,8 +17,6 @@ permissions:
   contents: write
 jobs:
   package:
-    env:
-      BOARDLENS_BUILD_LAB: ${{ inputs.edition == 'autoplay-test' && '1' || '0' }}
     strategy:
       fail-fast: false
       matrix:
@@ -75,13 +68,6 @@ jobs:
           $result = Get-Content $report | ConvertFrom-Json
           if (-not $result.legal_move -or $result.error -or $result.console_window -ne 0) { throw ($result | ConvertTo-Json) }
           Get-Content $report
-      - name: Test cursor-free clicks on Windows
-        if: runner.os == 'Windows' && inputs.edition == 'autoplay-test'
-        shell: pwsh
-        run: |
-          $env:PYTHONPATH = (Join-Path $PWD 'desktop')
-          & native-work/payload/runtime/python.exe desktop/tests/window_clicks_smoke.py
-          if ($LASTEXITCODE -ne 0) { throw 'Cursor-free clicks did not reach the Windows test window' }
       - name: Test Mac GUI app
         if: runner.os == 'macOS'
         run: |
