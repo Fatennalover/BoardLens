@@ -31,7 +31,7 @@ Phone capture is explicit, user-started MediaProjection with an ongoing Stop not
 
 ## Download & start
 
-Open the [BoardLens releases](https://github.com/Fatennalover/BoardLens/releases) and choose the asset for your device.
+Open the [BoardLens releases](https://github.com/Fatennalover/BoardLens/releases) and choose the asset for your device. Browse earlier versions in [Legacy downloads](https://github.com/Fatennalover/BoardLens/releases/tag/legacy-packages-v1).
 
 | Device | Download | Start |
 | --- | --- | --- |
