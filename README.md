@@ -47,9 +47,9 @@ Open the [latest BoardLens release](https://github.com/Fatennalover/BoardLens/re
 
 | Device | Download | Start |
 | --- | --- | --- |
-| Mac (Apple Silicon) | [BoardLens 2.19.9 ZIP](https://github.com/Fatennalover/BoardLens/releases/latest/download/BoardLens-Mac-AppleSilicon.zip) | Unzip, then open **BoardLens.app**. macOS 14+. |
-| Mac (Intel) | [BoardLens 2.19.9 DMG](https://github.com/Fatennalover/BoardLens/releases/latest/download/BoardLens-Mac-Intel.dmg) | Open the disk image and drag **BoardLens** into **Applications**. macOS 14+. |
-| Windows 10/11 (64-bit) | [BoardLens 2.19.9 ZIP](https://github.com/Fatennalover/BoardLens/releases/latest/download/BoardLens-Windows-x64.zip) | Extract the entire folder, then open **BoardLens.exe**. Keep Resources beside it. |
+| Mac (Apple Silicon) | [BoardLens 2.19.10 ZIP](https://github.com/Fatennalover/BoardLens/releases/latest/download/BoardLens-Mac-AppleSilicon.zip) | Unzip, then open **BoardLens.app**. macOS 14+. |
+| Mac (Intel) | [BoardLens 2.19.10 DMG](https://github.com/Fatennalover/BoardLens/releases/latest/download/BoardLens-Mac-Intel.dmg) | Open the disk image and drag **BoardLens** into **Applications**. macOS 14+. |
+| Windows 10/11 (64-bit) | [BoardLens 2.19.10 ZIP](https://github.com/Fatennalover/BoardLens/releases/latest/download/BoardLens-Windows-x64.zip) | Extract the entire folder, then open **BoardLens.exe**. Keep Resources beside it. |
 | Android | [BoardLens 1.9.13 APK](https://github.com/Fatennalover/BoardLens/releases/latest/download/BoardLens-Companion-Android.apk) | Open **Practice and review** or **Phone screen**. Use **Engine library** to install Stockfish and optional models. |
 | iPhone / iPad | Phone browser, or unsigned iOS source ZIP | Open the desktop companion address. Native source needs Xcode and your signing setup. |
 

@@ -73,3 +73,30 @@ def test_king_decoration_can_cross_into_an_empty_square(render_board, monkeypatc
     assert read.reliable
     assert not read.white_bottom
     assert read.symbols == ordered_symbols(board, False)
+
+
+def test_retina_retry_preserves_confident_pieces(monkeypatch):
+    from chess_helper.recognition import LABELS, Recognizer
+
+    recognizer = Recognizer()
+    image = np.zeros((900, 900, 3), np.uint8)
+    symbols = ordered_symbols(chess.Board())
+    clear = np.eye(len(LABELS))[[LABELS.index(piece) for piece in symbols]]
+    uncertain = clear.copy()
+    uncertain[4] *= .65
+    conflicting = clear.copy()
+    conflicting[5, LABELS.index('b')] = 0
+    conflicting[5, LABELS.index('p')] = 1
+    monkeypatch.setattr(recognizer, "load", lambda: None)
+    for retry, expected in ((clear, True), (conflicting, False)):
+        passes = []
+
+        def classify(gray, interpolation):
+            passes.append(interpolation)
+            return uncertain if interpolation == cv2.INTER_LINEAR else retry
+
+        monkeypatch.setattr(recognizer, "_classify", classify)
+        result = recognizer.read(image, white_bottom=True)
+        assert result.reliable is expected
+        assert result.symbols == symbols
+        assert passes == [cv2.INTER_LINEAR, cv2.INTER_AREA]

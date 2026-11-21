@@ -76,9 +76,24 @@ class Recognizer:
 
     def read(self, image, white_bottom=None):
         self.load()
-        # Match upstream luma and bilinear sampling; batch order is A1..H8.
+        # Match the model's luma conversion and normal bilinear sampling.
         gray = image[...,2].astype(np.float32)*.299 + image[...,1].astype(np.float32)*.587 + image[...,0].astype(np.float32)*.114
-        board = cv2.resize(gray, (256,256), interpolation=cv2.INTER_LINEAR) / 255
+        probabilities = self._classify(gray, cv2.INTER_LINEAR)
+        result = self._read_result(image, probabilities, white_bottom)
+        if not result.reliable and min(gray.shape) >= 768 and result.confidence.mean() >= .85:
+            # Retina downsampling can alias small decorations into piece edges.
+            # Retry the same grid with area sampling and retain known squares.
+            retry = self._read_result(image, self._classify(gray, cv2.INTER_AREA), white_bottom)
+            if retry.reliable and all(
+                before == after or confidence < .90
+                for before, after, confidence in zip(result.symbols, retry.symbols, result.confidence)
+            ):
+                return retry
+        return result
+
+    def _classify(self, gray, interpolation):
+        # Inference expects tiles in A1..H8 order.
+        board = cv2.resize(gray, (256,256), interpolation=interpolation) / 255
         tiles = board.reshape(8,32,8,32).transpose(0,2,1,3)[::-1].reshape(64,1024).copy()
         output = self.session.run(["probs"], {"tiles": tiles})[0]
         probabilities = output.reshape(8,8,13)[::-1].reshape(64,13).copy()
@@ -86,6 +101,9 @@ class Recognizer:
         if uncertain.size:
             display_tiles = tiles.reshape(8,8,32,32)[::-1].reshape(64,32,32)
             self._read_overflow(display_tiles, probabilities, uncertain)
+        return probabilities
+
+    def _read_result(self, image, probabilities, white_bottom):
         symbols = [LABELS[index] for index in probabilities.argmax(1)]
         labeled=rank_orientation(image) if white_bottom is None else white_bottom
         return Read(symbols, probabilities.max(1), probabilities,
