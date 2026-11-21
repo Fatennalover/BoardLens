@@ -104,7 +104,7 @@
      const offset=(lane-(count-1)/2)*r.width/8*Math.min(.13,.4/count),dx=-Math.sin(angle)*offset,dy=Math.cos(angle)*offset;
      start[0]+=dx;start[1]+=dy;end[0]+=dx;end[1]+=dy;
      const width=Math.max(2,r.width/(narrow?142:85)),spread=narrow?.22:.5;
-     let line=document.createElementNS(ns,'path');line.setAttribute('d',`M ${start.join(' ')} L ${end.join(' ')}`);line.setAttribute('stroke',a.color);line.setAttribute('stroke-width',width);line.setAttribute('stroke-linecap','round');line.setAttribute('fill','none');line.setAttribute('opacity','.85');if(a.dashed)line.setAttribute('stroke-dasharray',width*1.6+' '+width);fragments.push(line);
+     let line=document.createElementNS(ns,'path');line.setAttribute('d',`M ${start.join(' ')} L ${end.join(' ')}`);line.setAttribute('stroke',a.color);line.setAttribute('stroke-width',width);line.setAttribute('stroke-linecap','round');line.setAttribute('fill','none');line.setAttribute('opacity','.85');fragments.push(line);
      let triangle=document.createElementNS(ns,'path');triangle.setAttribute('d',`M ${end.join(' ')} L ${end[0]-head*Math.cos(angle-spread)} ${end[1]-head*Math.sin(angle-spread)} L ${end[0]-head*Math.cos(angle+spread)} ${end[1]-head*Math.sin(angle+spread)} Z`);triangle.setAttribute('fill',a.color);fragments.push(triangle);
     }
    }

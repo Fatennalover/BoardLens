@@ -3,6 +3,7 @@
 The app has two sections in one menu:
 
 - **Phone screen** reads a visible chessboard in another phone app, analyzes on this phone and draws arrows. It needs no computer.
+- **Browser Reader** reads supported boards inside BoardLens. Tap the floating logo to change analysis settings, or tap **Menu** in the toolbar to reopen it. Use the chess site’s own sign-in link if you need to sign in. Predictions in Browser Reader appear as text above the board.
 - **Computer companion** controls the existing desktop dashboard over trusted Wi-Fi. Its settings and boards remain separate.
 
 ## Start

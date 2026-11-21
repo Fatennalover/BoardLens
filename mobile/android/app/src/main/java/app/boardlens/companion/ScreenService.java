@@ -115,6 +115,7 @@ public final class ScreenService extends Service {
       evalWorker = new LatestWorkQueue("BoardLens-evaluation");
 
   private void preferenceChanged(String key){
+    if (FloatingControls.BROWSER_ENABLED.equals(key)) return;
     if (FloatingControls.ENABLED.equals(key)) { main.post(this::syncFloatingControls); return; }
     if (ArrowEngines.isColorKey(key)) { renderOverlay(); return; }
     if (ArrowEngines.PREF.equals(key)) {
@@ -391,6 +392,7 @@ public final class ScreenService extends Service {
     var values=new java.util.TreeMap<>(settings.p.getAll());
     values.remove("arrows");values.remove("screen_evaluation");values.remove("evaluation_position");
     values.remove(FloatingControls.ENABLED);
+    values.remove(FloatingControls.BROWSER_ENABLED);
     values.remove(ArrowEngines.PREF);
     values.keySet().removeIf(ArrowEngines::isColorKey);
     values.remove("evaluation_x");values.remove("evaluation_y");values.remove("evaluation_vertical");

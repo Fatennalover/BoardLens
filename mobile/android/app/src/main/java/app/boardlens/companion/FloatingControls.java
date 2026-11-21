@@ -22,6 +22,7 @@ import android.view.ViewConfiguration;
 import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.widget.Button;
+import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -37,6 +38,7 @@ import static app.boardlens.companion.FloatingControlLayout.Box;
 /** A bounded overlay window. All views and window operations run on the main thread. */
 final class FloatingControls {
   static final String ENABLED = "floating_controls";
+  static final String BROWSER_ENABLED = "browser_floating_controls";
   private static final int PANEL = 0xff151322;
   private static final int SURFACE = 0xff201c31;
   private static final int BORDER = 0xff3d3552;
@@ -54,6 +56,8 @@ final class FloatingControls {
 
   private final Context context;
   private final WindowManager windows;
+  private final FrameLayout host;
+  private final String visibilityKey;
   private final PhoneSettings settings;
   private final SharedPreferences layout;
   private final MobileUi ui;
@@ -73,17 +77,24 @@ final class FloatingControls {
   private float anchorX, anchorY;
 
   FloatingControls(Context context, PhoneSettings settings, Actions actions) {
+    this(context, settings, actions, null);
+  }
+
+  FloatingControls(Context context, PhoneSettings settings, Actions actions, FrameLayout host) {
     this.context = context;
     this.settings = settings;
     this.actions = actions;
+    this.host = host;
+    visibilityKey = host == null ? ENABLED : BROWSER_ENABLED;
     windows = context.getSystemService(WindowManager.class);
-    layout = context.getSharedPreferences("floating-controls-layout", Context.MODE_PRIVATE);
+    layout = context.getSharedPreferences(host == null ? "floating-controls-layout"
+        : "browser-floating-controls-layout", Context.MODE_PRIVATE);
     ui = new MobileUi(context);
     slop = ViewConfiguration.get(context).getScaledTouchSlop();
     widthDp = layout.getInt("width", 274);
     heightDp = layout.getInt("height", 296);
     anchorX = layout.getFloat("x", 1f);
-    anchorY = layout.getFloat("y", 0f);
+    anchorY = layout.getFloat("y", host == null ? 0f : 1f);
     root = ui.column();
     params = new WindowManager.LayoutParams(1, 1,
         WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
@@ -115,9 +126,9 @@ final class FloatingControls {
 
   void show(boolean visible) {
     permittedToShow = visible;
-    boolean enabled = settings.p.getBoolean(ENABLED, true);
+    boolean enabled = settings.p.getBoolean(visibilityKey, true);
     if (!enabled) expanded = false;
-    if (!visible || !enabled || !Settings.canDrawOverlays(context)) {
+    if (!visible || !enabled || !canShow()) {
       detach();
       return;
     }
@@ -125,25 +136,26 @@ final class FloatingControls {
   }
 
   void toggle() {
-    if (expanded && settings.p.getBoolean(ENABLED, true)) collapse();
+    if (expanded && settings.p.getBoolean(visibilityKey, true)) collapse();
     else open();
   }
 
   void open() {
-    if (!Settings.canDrawOverlays(context)) return;
+    if (host == null && !Settings.canDrawOverlays(context)) return;
     expanded = true;
-    settings.p.edit().putBoolean(ENABLED, true).apply();
-    if (permittedToShow) display(true);
+    settings.p.edit().putBoolean(visibilityKey, true).apply();
+    if (permittedToShow && canShow()) display(true);
   }
 
   void close() {
     expanded = false;
-    settings.p.edit().putBoolean(ENABLED, false).apply();
+    settings.p.edit().putBoolean(visibilityKey, false).apply();
     detach();
   }
 
   void displayChanged() {
     if (attached) display(expanded);
+    else if (permittedToShow) show(true);
   }
 
   void setBoard(Rect rect) {
@@ -161,8 +173,11 @@ final class FloatingControls {
 
   private void detach() {
     if (attached) {
-      try { windows.removeView(root); }
-      catch (IllegalArgumentException ignored) { }
+      if (host != null) host.removeView(root);
+      else {
+        try { windows.removeView(root); }
+        catch (IllegalArgumentException ignored) { }
+      }
       attached = false;
     }
     publish(null);
@@ -197,6 +212,17 @@ final class FloatingControls {
 
   private void place(Box box) {
     geometry = box;
+    if (host != null) {
+      FrameLayout.LayoutParams inApp = new FrameLayout.LayoutParams(box.width(), box.height(),
+          Gravity.TOP | Gravity.LEFT);
+      inApp.leftMargin = box.left();
+      inApp.topMargin = box.top();
+      if (attached) root.setLayoutParams(inApp);
+      else { host.addView(root, inApp); attached = true; }
+      publish(box);
+      updateObstruction();
+      return;
+    }
     params.x = box.left();
     params.y = box.top();
     params.width = box.width();
@@ -219,6 +245,8 @@ final class FloatingControls {
 
   private Box availableSpace() {
     int gap = ui.dp(8);
+    if (host != null)
+      return new Box(gap, gap, host.getWidth() - gap, host.getHeight() - gap);
     if (Build.VERSION.SDK_INT >= 30) {
       var metrics = windows.getCurrentWindowMetrics();
       Rect bounds = metrics.getBounds();
@@ -230,6 +258,11 @@ final class FloatingControls {
     DisplayMetrics metrics = new DisplayMetrics();
     windows.getDefaultDisplay().getRealMetrics(metrics);
     return new Box(gap, ui.dp(40), metrics.widthPixels - gap, metrics.heightPixels - ui.dp(48));
+  }
+
+  private boolean canShow() {
+    return host == null ? Settings.canDrawOverlays(context)
+        : host.getWidth() > ui.dp(16) && host.getHeight() > ui.dp(16);
   }
 
   private void buildPanel() {
@@ -485,7 +518,7 @@ final class FloatingControls {
   private void showQuick() {
     LinearLayout page = page(null);
     button(page, "Arrow engines", () -> showArrowEngines(this::showQuick));
-    toggle(page, "Screen arrows", "arrows", true);
+    toggle(page, host == null ? "Screen arrows" : "Browser arrows", "arrows", true);
     toggle(page, "Evaluation bar", "screen_evaluation", true);
     toggle(page, "Only my color", "onlyMine", false);
   }
@@ -523,18 +556,22 @@ final class FloatingControls {
 
   private void showBoardOptions() {
     LinearLayout page = page(null);
-    picker(page, "Orientation", "orientation", settings.orientation(),
-        List.of("Auto", "White at bottom", "Black at bottom"), this::showBoardOptions);
-    picker(page, "Side to move", "turn", settings.turn(),
-        List.of("Auto", "White", "Black"), this::showBoardOptions);
-    picker(page, "Eval bar position", "evaluation_position", settings.evaluationPosition(),
-        List.of("Auto", "Top", "Bottom", "Left", "Right", "Custom"), this::showBoardOptions);
+    if (host == null) {
+      picker(page, "Orientation", "orientation", settings.orientation(),
+          List.of("Auto", "White at bottom", "Black at bottom"), this::showBoardOptions);
+      picker(page, "Side to move", "turn", settings.turn(),
+          List.of("Auto", "White", "Black"), this::showBoardOptions);
+      picker(page, "Eval bar position", "evaluation_position", settings.evaluationPosition(),
+          List.of("Auto", "Top", "Bottom", "Left", "Right", "Custom"), this::showBoardOptions);
+    }
     toggle(page, "Predict replies", "predict", true, this::showBoardOptions);
     if (settings.predict())
       number(page, "Prediction length", "prediction_plies", settings.predictionPlies(), 1, 12, 1);
     toggle(page, "Show moves while thinking", "early", true);
-    toggle(page, "Steady arrows", "steady", true);
-    toggle(page, "Lock move", "lock_move", false);
+    if (host == null) {
+      toggle(page, "Steady arrows", "steady", true);
+      toggle(page, "Lock move", "lock_move", false);
+    }
   }
 
   private void engine(LinearLayout page, String title, boolean evaluation) {
