@@ -33,6 +33,8 @@ public final class ScreenService extends Service {
   static volatile Bitmap preview;
   static volatile ChessPosition trackedPosition;
   static volatile boolean trackedWhiteBottom = true;
+  record PracticeSnapshot(ChessPosition position, boolean whiteBottom) {}
+  static volatile PracticeSnapshot lastScannedBoard;
   static volatile float whiteShare = .5f;
   static volatile boolean hasEvaluationValue;
   private static volatile String evaluationBadge="…";
@@ -595,6 +597,8 @@ public final class ScreenService extends Service {
       fen = position.fen();
       trackedWhiteBottom = bottom;
       trackedPosition = position;
+      if (changedPosition || orientationChanged || lastScannedBoard == null)
+        lastScannedBoard = new PracticeSnapshot(position, bottom);
       baseline = fingerprint(frame, target);needsRead=false;
       if(changedPosition||orientationChanged||preview==null){
         Bitmap crop=Bitmap.createBitmap(frame,target.left,target.top,target.width(),target.height());

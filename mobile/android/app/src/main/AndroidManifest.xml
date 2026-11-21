@@ -13,6 +13,7 @@
   <activity android:name="app.boardlens.companion.BrowserBoardActivity" android:exported="false"/>
   <activity android:name=".ModelsActivity" android:exported="false"/>
   <activity android:name=".PhoneScreenActivity" android:exported="false"/>
+  <activity android:name=".PracticeActivity" android:exported="false"/>
   <activity android:name=".MainActivity" android:exported="true" android:configChanges="orientation|screenSize|keyboardHidden">
    <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
   </activity>

@@ -12,6 +12,7 @@ final class PhoneDashboard {
     void start();void stop();void hide();void scan();void settings();void help();void back();
     default String downloadLabel(){return "";}
     default void moves(){}
+    default void practice(){}
     default void openFloatingMenu(){}
     default void closeFloatingMenu(){}
     default String timeLabel(){return "Thinking time";}default void timeSettings(){settings();}
@@ -56,6 +57,8 @@ final class PhoneDashboard {
     preview.setContentDescription("Last recognized board");
     preview.setVisibility(View.GONE);
     boardCard.addView(preview,new LinearLayout.LayoutParams(-1,ui.dp(280)));
+    ui.gap(boardCard,8);
+    boardCard.addView(ui.button("Open in Practice",false,a::practice));
     col.addView(boardCard);
     ui.gap(col,12);
 

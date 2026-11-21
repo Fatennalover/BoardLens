@@ -103,7 +103,9 @@ public class MainActivity extends Activity {
     col.addView(ui.text("Choose a board source",26,foreground,true));
     ui.gap(col,16);
     LinearLayout phone=ui.card();phone.addView(ui.text("On this phone",20,foreground,true));ui.gap(phone,8);phone.addView(ui.text("Live analysis and arrows over a board in another app.",14,MobileUi.MUTED,false));ui.gap(phone,20);
-    phone.addView(ui.button("Open phone screen",true,()->startActivity(new Intent(this,PhoneScreenActivity.class))),new LinearLayout.LayoutParams(-1,dp(50)));ui.gap(phone,8);phone.addView(ui.button("Open browser reader",false,()->startActivity(new Intent(this,BrowserBoardActivity.class))),new LinearLayout.LayoutParams(-1,dp(50)));col.addView(phone);ui.gap(col,14);
+    phone.addView(ui.button("Open phone screen",true,()->startActivity(new Intent(this,PhoneScreenActivity.class))),new LinearLayout.LayoutParams(-1,dp(50)));ui.gap(phone,8);
+    phone.addView(ui.button("Practice and review",false,()->PracticeActivity.open(this,false)),new LinearLayout.LayoutParams(-1,dp(50)));ui.gap(phone,8);
+    phone.addView(ui.button("Open browser reader",false,()->startActivity(new Intent(this,BrowserBoardActivity.class))),new LinearLayout.LayoutParams(-1,dp(50)));col.addView(phone);ui.gap(col,14);
     LinearLayout computer=ui.card();computer.addView(ui.text("Computer companion",20,foreground,true));ui.gap(computer,8);computer.addView(ui.text("Your computer's boards and engines, over Wi-Fi.",14,MobileUi.MUTED,false));ui.gap(computer,20);computer.addView(ui.button("Connect to computer",false,()->connectScreen(null)),new LinearLayout.LayoutParams(-1,dp(50)));col.addView(computer);ui.gap(col,24);
     boolean auto=getSharedPreferences("app-updates",0).getBoolean("auto",true);
     col.addView(ui.toggle("Update checks","Check GitHub for a new release",auto,v->getSharedPreferences("app-updates",0).edit().putBoolean("auto",v).apply()));ui.gap(col,8);

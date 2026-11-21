@@ -21,7 +21,11 @@ Open **Review game** to analyze your recorded moves with Stockfish or another co
 
 ![BoardLens Game review with a clickable move list, evaluation and an arrow showing checkmate](docs/images/desktop-game-review.png)
 
-### Android 1.9.8
+### Android 1.9.13
+
+<p align="center"><img src="docs/images/android-practice.png" alt="Android Practice board with a side-to-move picker and a Stockfish arrow" width="280"> <img src="docs/images/android-game-review.png" alt="Android Game Review with a selectable engine continuation" width="280"></p>
+
+Open **Practice and review** to play on an editable board or import a screenshot. On **Phone screen**, tap **Open in Practice** to copy your last scan and its recorded moves. Choose **Side to move**, use **Auto suggest** for arrows, and open **Review game** to step through played moves or generate an engine continuation.
 
 <p align="center"><img src="docs/images/android-menu.png" alt="Android board source menu" width="280"> <img src="docs/images/android-browser-reader.png" alt="Android Browser Reader with a detected board and floating menu" width="280"></p>
 <p align="center"><img src="docs/images/android-phone-screen.png" alt="Android phone-screen analysis controls" width="220"> <img src="docs/images/android-engine-settings.png" alt="Android engine settings" width="220"> <img src="docs/images/android-companion-setup.png" alt="Android computer companion setup" width="220"></p>
@@ -39,14 +43,14 @@ Phone capture is explicit, user-started MediaProjection with an ongoing Stop not
 
 ## Download & start
 
-Open the [BoardLens releases](https://github.com/Fatennalover/BoardLens/releases) and choose the asset for your device. Browse earlier versions in [Legacy downloads](https://github.com/Fatennalover/BoardLens/releases/tag/legacy-packages-v1).
+Open the [latest BoardLens release](https://github.com/Fatennalover/BoardLens/releases/latest) and choose the asset for your device. Browse earlier versions in [Legacy downloads](https://github.com/Fatennalover/BoardLens/releases/tag/legacy-packages-v1).
 
 | Device | Download | Start |
 | --- | --- | --- |
-| Mac (Apple Silicon) | [BoardLens 2.19.9 ZIP](https://github.com/Fatennalover/BoardLens/releases/download/v2.19.9/BoardLens-Mac-AppleSilicon.zip) | Unzip, then open **BoardLens.app**. macOS 14+. |
-| Mac (Intel) | `BoardLens-Mac-Intel.dmg` | Extract, then open **BoardLens.app**. macOS 14+. |
-| Windows 10/11 (64-bit) | `BoardLens-Windows-x64.zip` | Extract the entire folder, then open **BoardLens.exe**. Keep Resources beside it. |
-| Android | [BoardLens-Companion-Android.apk](https://github.com/Fatennalover/BoardLens/releases/download/android-v1.9.12/BoardLens-Companion-Android.apk) | Phone screen → Settings → Models & downloads, then Start. Computer companion is optional. |
+| Mac (Apple Silicon) | [BoardLens 2.19.9 ZIP](https://github.com/Fatennalover/BoardLens/releases/latest/download/BoardLens-Mac-AppleSilicon.zip) | Unzip, then open **BoardLens.app**. macOS 14+. |
+| Mac (Intel) | [BoardLens 2.19.9 DMG](https://github.com/Fatennalover/BoardLens/releases/latest/download/BoardLens-Mac-Intel.dmg) | Open the disk image and drag **BoardLens** into **Applications**. macOS 14+. |
+| Windows 10/11 (64-bit) | [BoardLens 2.19.9 ZIP](https://github.com/Fatennalover/BoardLens/releases/latest/download/BoardLens-Windows-x64.zip) | Extract the entire folder, then open **BoardLens.exe**. Keep Resources beside it. |
+| Android | [BoardLens 1.9.13 APK](https://github.com/Fatennalover/BoardLens/releases/latest/download/BoardLens-Companion-Android.apk) | Open **Practice and review** or **Phone screen**. Use **Engine library** to install Stockfish and optional models. |
 | iPhone / iPad | Phone browser, or unsigned iOS source ZIP | Open the desktop companion address. Native source needs Xcode and your signing setup. |
 
 The desktop app includes a private Python runtime, recognition models and Stockfish 19. No Terminal or Python installation is required. The first launch prepares its files in your user profile; later launches reuse them. Settings and optional engines remain in the normal BoardLens app-data folder, including when upgrading from the source version. Optional engines download only when selected. The Mac apps are ad-hoc signed, not notarized; Windows is unsigned. [Desktop installation and build details →](docs/DESKTOP-APPS.md)

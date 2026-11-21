@@ -30,6 +30,7 @@ public class PhoneScreenActivity extends Activity {
   public void timeSettings(){showTiming();}
   public String downloadLabel(){return ModelDownloads.running?ModelDownloads.message:"";}
   public void moves(){showMoves();}
+  public void practice(){PracticeActivity.open(PhoneScreenActivity.this,true);}
   public void openFloatingMenu(){PhoneScreenActivity.this.openFloatingMenu();}
   public void closeFloatingMenu(){
     settings.p.edit().putBoolean(FloatingControls.ENABLED, false).apply();

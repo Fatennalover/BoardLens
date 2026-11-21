@@ -1,8 +1,9 @@
-# Phone screen analysis — Android 1.8.7
+# Phone screen analysis
 
-The app has two sections in one menu:
+Choose a board source from the app menu.
 
 - **Phone screen** reads a visible chessboard in another phone app, analyzes on this phone and draws arrows. It needs no computer.
+- **Practice and review** opens a local editable board. Use a starting board, an imported screenshot, or a copy of the last scan.
 - **Browser Reader** reads supported boards inside BoardLens. Tap the floating logo to change analysis settings, or tap **Menu** in the toolbar to reopen it. Use the chess site’s own sign-in link if you need to sign in. Predictions in Browser Reader appear as text above the board.
 - **Computer companion** controls the existing desktop dashboard over trusted Wi-Fi. Its settings and boards remain separate.
 
@@ -12,13 +13,19 @@ Android 10+ and an ARM64 phone are required for local analysis. Open Phone scree
 
 Tap Use for moves on a downloaded model card, or select a move engine in Settings. The evaluation engine stays independent. Download completion and settings changes re-analyze the last recognized position, even while the app UI is visible. Press Start, allow full-display screen sharing and, for arrows, Display over other apps. Press Home or Open another app. Keep the complete board visible. Analysis continues while the foreground-service session runs, including after leaving or dismissing the interface. Stop in the app or notification ends capture. Settings save automatically.
 
-Android requests approval for each new capture session. Locking, revoking access, force-stop, protected screens and OS power restrictions can interrupt it. The app does not silently restart screen sharing. It uses no Accessibility service or boot receiver. Screens are processed locally and not saved or uploaded. No autoplay, Study or coaching is included.
+Android requests approval for each new capture session. Locking, revoking access, force-stop, protected screens and OS power restrictions can interrupt it. The app does not silently restart screen sharing. It uses no Accessibility service or boot receiver. Screens are processed locally and not saved or uploaded.
 
 A still opening board should be acquired without making a move. **Scan now** is available in the app and beside **Stop** in the expanded notification. It clears the target and rejected-frame cache, then re-runs recognition in the existing sharing session, including on a still captured frame. Automatic scanning continues; no quit or new sharing approval is needed. Stop ends sharing. If Android has already ended sharing, Start and fresh OS approval are required. Under Help → **Diagnostics**, view or copy capture-frame and recognition counts, screen size and the scanner stage, without screenshots or board positions.
 
 Some apps mark windows secure. [Android withholds their pixels from screen capture](https://developer.android.com/security/fraud-prevention/activities). BoardLens cannot recover a chessboard from a black capture. It reports **Screen is blank or capture is blocked** in the app/notification, avoids repeatedly running recognition on blank pixels, and keeps watching for readable content to return. A loading screen can also be blank; the message does not identify protection from pixels alone. Old analysis cannot draw on a lost or unconfirmed target.
 
 If no arrow appears, check whether the board preview was recognized, Screen arrows is on, and Only my color is waiting for the bottom side’s turn.
+
+## Practice and Game Review
+
+From the Phone screen dashboard, tap **Open in Practice** to copy the detected position and any recorded moves. From **Practice**, tap **Open screenshot** to import a position from an image. Choose **Side to move**, tap a piece and its destination, and pick an installed engine for **Suggest** or **Auto suggest**.
+
+Open **Review game** to tap through recorded positions. **Analyze game** evaluates the positions with your chosen engine. **Play out from here** generates a continuation of up to 50 moves from the selected position. Screenshot history starts at the imported position.
 
 ## Times and on-screen evaluation
 
