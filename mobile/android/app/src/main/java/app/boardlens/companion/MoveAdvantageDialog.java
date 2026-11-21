@@ -42,12 +42,14 @@ final class MoveAdvantageDialog implements AutoCloseable {
         count = Math.max(0, Math.min(6, preferences.getInt("count", 3)));
 
         ScrollView scroll = new ScrollView(activity);
-        LinearLayout content = ui.page(scroll);
+        scroll.setFillViewport(true);
+        scroll.setBackgroundColor(ui.backdrop());
+        LinearLayout content = ui.column();
+        content.setPadding(ui.dp(20), ui.dp(14), ui.dp(20), ui.dp(16));
+        scroll.addView(content, new ScrollView.LayoutParams(-1, -2));
         String[] enginesList = new String[SCORERS.length];
         for (int i = 0; i < SCORERS.length; i++) {
-            String engine = SCORERS[i];
-            enginesList[i] = EngineCatalog.get(engine).name()
-                    + (EngineCatalog.ready(activity, engine) ? "" : " · install in Engine library");
+            enginesList[i] = EngineCatalog.get(SCORERS[i]).name();
         }
         content.addView(ui.choice("Scoring engine", enginesList, selected, index -> {
             scorer = SCORERS[index];
