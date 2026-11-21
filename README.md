@@ -1,7 +1,7 @@
 <p align="center"><img src="docs/brand/banner.png" alt="BoardLens" width="660"></p>
 <p align="center"><strong>Your best move. On every screen.</strong><br>Open-source chess cheating and analysis software for desktop and Android.</p>
 <p align="center"><a href="#download--start"><strong>Download BoardLens</strong></a> · <a href="#features">Features</a> · <a href="#phone--tablet">Mobile</a> · <a href="docs/ENGINES.md">Engines</a></p>
-<p align="center"><img alt="License GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-173d2b?style=flat-square"> <img alt="Mac and Windows" src="https://img.shields.io/badge/desktop-macOS%20%7C%20Windows-173d2b?style=flat-square"> <img alt="Android companion" src="https://img.shields.io/badge/mobile-Android%20companion%20%2B%20phone%20scanner-91dfb4?style=flat-square"></p>
+<p align="center"><img alt="License GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-57368d?style=flat-square"> <img alt="Mac and Windows" src="https://img.shields.io/badge/desktop-macOS%20%7C%20Windows-57368d?style=flat-square"> <img alt="Android companion" src="https://img.shields.io/badge/mobile-Android%20companion%20%2B%20phone%20scanner-c4a1f2?style=flat-square"></p>
 
 BoardLens sees a supported chessboard on your computer, follows its moves and brings engine recommendations, explanations and click-through arrows to your screen. Prefer a clean desktop? Put the interface on your phone while your computer keeps scanning and thinking.
 
@@ -15,8 +15,8 @@ No paid AI subscription is required. Normal recognition and engine analysis run 
 
 ### Android 1.9.8
 
-<p align="center"><img src="docs/images/android-menu.png" alt="Android board source menu" width="280"> <img src="docs/images/android-phone-screen.png" alt="Android phone-screen analysis controls" width="280"></p>
-<p align="center"><img src="docs/images/android-engine-settings.png" alt="Android engine settings" width="280"> <img src="docs/images/android-companion-setup.png" alt="Android computer companion setup" width="280"></p>
+<p align="center"><img src="docs/images/android-menu.png" alt="Android board source menu" width="280"> <img src="docs/images/android-browser-reader.png" alt="Android Browser Reader with a detected board and floating menu" width="280"></p>
+<p align="center"><img src="docs/images/android-phone-screen.png" alt="Android phone-screen analysis controls" width="220"> <img src="docs/images/android-engine-settings.png" alt="Android engine settings" width="220"> <img src="docs/images/android-companion-setup.png" alt="Android computer companion setup" width="220"></p>
 
 Screens captured from the Android app in an emulator.
 
