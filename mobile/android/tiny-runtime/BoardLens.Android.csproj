@@ -2,7 +2,7 @@
  <PropertyGroup>
   <TargetFramework>net10.0-android</TargetFramework><OutputType>Exe</OutputType>
   <ApplicationId>app.boardlens.companion</ApplicationId><ApplicationTitle>BoardLens</ApplicationTitle>
-  <ApplicationVersion>35</ApplicationVersion><ApplicationDisplayVersion>1.9.13</ApplicationDisplayVersion>
+  <ApplicationVersion>36</ApplicationVersion><ApplicationDisplayVersion>1.9.14</ApplicationDisplayVersion>
   <SupportedOSPlatformVersion>26.0</SupportedOSPlatformVersion><TargetPlatformVersion>36.0</TargetPlatformVersion>
   <RuntimeIdentifier>android-arm64</RuntimeIdentifier><ImplicitUsings>enable</ImplicitUsings><AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   <EnableDefaultCompileItems>false</EnableDefaultCompileItems><AndroidGenerateJavaClass>true</AndroidGenerateJavaClass>

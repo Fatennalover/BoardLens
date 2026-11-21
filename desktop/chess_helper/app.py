@@ -379,6 +379,8 @@ class MainWindow(QMainWindow):
         self.invalidate(release_move=True)
         self.multi.settings_changed()
         self.update_engine_summary()
+        if hasattr(self, "move_advantage"):
+            self.move_advantage.refresh()
 
     def update_workspace_navigation(self, index):
         board_page = index in (0, 1)
@@ -407,8 +409,13 @@ class MainWindow(QMainWindow):
         self.local_turn_row.setVisible(editable)
         self.review_button.setVisible(editable)
         self.compact_moves.setVisible(self._compact and not editable)
+        self.compact_advantage.setVisible(self._compact)
         for button in (self.previous_button, self.next_button, self.resume_button):
             button.setVisible(self.source.currentIndex() == 1 and self.board_stack.currentIndex() == 0)
+
+    def show_move_advantage(self):
+        self.toggle_compact(False)
+        self.analysis_tabs.setCurrentWidget(self.move_advantage)
 
     def start_live(self, compact=False):
         if self.source.currentIndex() != 1:
@@ -542,6 +549,7 @@ class MainWindow(QMainWindow):
         if error or answer is None:
             self._lost_frames+=1
             self._screen_confirmed = False
+            self.move_advantage.refresh()
             self._pending_screen_move=None
             self._overlay_grace_until=0.
             self.overlay.hide();self.screen_eval.hide()
@@ -682,6 +690,7 @@ class MainWindow(QMainWindow):
             self.update_visuals()
         except ValueError as exc:
             self._screen_confirmed = False
+            self.move_advantage.refresh()
             self.status(f"Waiting for a complete position… {exc}")
 
     def observe_result_frame(self,frame):
@@ -695,6 +704,7 @@ class MainWindow(QMainWindow):
     def visible_game_end(self,fen,message):
         if self.closing or not self._monitoring or fen!=self.tracker.board.fen():return
         self.game_ended=True;self._ended_placement=self.tracker.board.board_fen()
+        self.move_advantage.refresh()
         if self.autoplay_test.active and self.autoplay_test.matches_board():
             self.autoplay_test.wait_for_new_board(fen)
         self.invalidate(preserve_eval=True);self.overlay.hide();self.screen_eval.hide()
@@ -1197,6 +1207,7 @@ class MainWindow(QMainWindow):
         self.next_button=self._button("Next", self.history_next, history)
         self.resume_button=self._button("Resume live", self.resume_live, history)
         self.compact_moves = self._button("Moves", self.open_moves, history)
+        self.compact_advantage = self._button("Advantage", self.show_move_advantage, history)
         self.review_button = self._button("Review game", lambda: self.open_game_review(), history)
         self.position_button = self._button("Position…", lambda: self.position_dialog.exec(), history)
         mid.addLayout(history)
@@ -1253,6 +1264,11 @@ class MainWindow(QMainWindow):
         self.moves_log.anchorClicked.connect(self.review_move_link)
         moves_layout.addWidget(self.moves_log, 1)
         self.analysis_tabs.addTab(moves_page, "Moves")
+        from .move_advantage import MoveAdvantage
+        self.move_advantage = MoveAdvantage(self)
+        self.advantage_engine = self.move_advantage.engine
+        self.advantage_count = self.move_advantage.count
+        self.analysis_tabs.addTab(self.move_advantage, "Move advantage")
         self.settings_page = QWidget()
         settings_page_layout = QVBoxLayout(self.settings_page)
         settings_page_layout.setContentsMargins(20, 12, 20, 8)
@@ -1489,6 +1505,7 @@ class MainWindow(QMainWindow):
         self.opening_label.hide()
         self.refresh_move_log()
         self.show_welcome()
+        self.move_advantage.refresh()
 
     def show_board_surface(self):
         self.board_stack.setCurrentIndex(0)
@@ -1555,6 +1572,11 @@ class MainWindow(QMainWindow):
             except (TypeError,ValueError):pass
         for name,default in (('eval_seconds',.3),('eval_depth',18),('eval_human_elo',1500),('prediction_plies',3),('prediction_seconds',3.)):getattr(self,name).setValue(self.settings.get(name,default))
         self.eval_engine.setCurrentIndex(max(0,self.eval_engine.findData(self.settings.get('eval_engine_id',0))))
+        self.advantage_engine.setCurrentIndex(max(0, self.advantage_engine.findData(self.settings.get("advantage_engine_id", 0))))
+        try:
+            self.advantage_count.setValue(int(self.settings.get("advantage_count", 0)))
+        except (TypeError, ValueError, OverflowError):
+            self.advantage_count.setValue(0)
         self.predict_continuations.setChecked(bool(self.settings.get('predict_continuations',True)))
         self.refresh_engine_selectors()
         self.engine_configuration_changed();self.evaluation_settings_changed();self.prediction_controls_changed()
@@ -1595,6 +1617,7 @@ class MainWindow(QMainWindow):
         values.update({name:getattr(self,name).currentIndex() for name in ('engine_kind','playing_style','strength_mode','compare_a','compare_b','compare_c')})
         values.update({name:getattr(self,name).value() for name in ('engine_skill','engine_elo','human_elo')})
         values.update(eval_engine_id=self.eval_engine.currentData(),eval_seconds=self.eval_seconds.value(),eval_depth=self.eval_depth.value(),eval_human_elo=self.eval_human_elo.value(),predict_continuations=self.predict_continuations.isChecked(),prediction_plies=self.prediction_plies.value(),prediction_seconds=self.prediction_seconds.value())
+        values.update(advantage_engine_id=self.advantage_engine.currentData(), advantage_count=self.advantage_count.value())
         values.update(custom_engine=self.custom_engine.text(),dashed_reply=self.dashed_reply.isChecked())
         values.update(arrow_count=self.arrow_count.value(),threats_enabled=self.threats_enabled.isChecked(),threat_attacks=self.threat_attacks.isChecked(),threat_mates=self.threat_mates.isChecked(),target_lock=self.target_lock.target,active_preset=self.preset_combo.currentData())
         try:
@@ -1918,6 +1941,7 @@ class MainWindow(QMainWindow):
         else:self.show_empty_board()
         board = self.tracker.board
         self.board_view.set_position(board, self.white_bottom)
+        self.move_advantage.refresh()
         self.refresh_move_log()
         self.eval_bar.white_bottom = self.white_bottom
         self.eval_bar.update()
@@ -2428,6 +2452,7 @@ class MainWindow(QMainWindow):
         self._monitoring = False
         if hasattr(self,'extra_engines'):self.extra_engines.cancel()
         if hasattr(self,'evaluations'):self.evaluations.invalidate()
+        if hasattr(self,'move_advantage'):self.move_advantage.clear()
         if hasattr(self,"comparison"):self.comparison.cancel()
         if hasattr(self,"multi"):self.multi.stop()
         self._scan_again = False
@@ -2485,6 +2510,9 @@ class MainWindow(QMainWindow):
             self.engine_kind.view().setRowHidden(index,not available)
             evaluation_index=self.eval_engine.findData(index)
             if evaluation_index>=0:self.eval_engine.view().setRowHidden(evaluation_index,not available)
+            advantage_index = self.advantage_engine.findData(index)
+            if advantage_index >= 0:
+                self.advantage_engine.view().setRowHidden(advantage_index, not available)
 
     def engine_configuration_changed(self,*_):
         if not hasattr(self,'engine_summary'):return
@@ -2627,6 +2655,7 @@ class MainWindow(QMainWindow):
 
     def evaluation_settings_changed(self,*_):
         if not hasattr(self,'evaluations'):return
+        self.move_advantage.refresh()
         kind=engine_library.ENTRIES[self.eval_engine.currentData()].kind
         for field in (self.eval_seconds,self.eval_depth):field.setEnabled(kind not in ('maia3','maia2'))
         self.eval_human_elo.setEnabled(kind in ('maia3','maia2'))
@@ -2761,6 +2790,7 @@ class MainWindow(QMainWindow):
         self.timer.stop()
         if hasattr(self,'autosave_timer'):self.autosave_timer.stop()
         self.settings_dialog.close()
+        self.move_advantage.close_engine()
         if self.game_review is not None:
             self.game_review.close()
         if hasattr(self,'comparison'):self.comparison.close()

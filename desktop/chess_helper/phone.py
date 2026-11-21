@@ -12,9 +12,9 @@ from .engine_config import configuration
 from . import __version__, engine_library, engine_profiles
 from .openings import opening_name, played_moves
 
-NUMBERS={'prediction_plies':'Prediction length (plies)','prediction_seconds':'Reply time budget (seconds)','eval_seconds':'Evaluation think time','eval_depth':'Evaluation depth cap','eval_human_elo':'Evaluation human rating','seconds':'Think time (seconds)','depth':'Search depth','multipv':'Candidate moves','threads':'CPU threads per board','hash_mb':'Hash memory (MB)','arrow_count':'Arrow candidates','engine_skill':'Stockfish skill (0–20)','engine_elo':'Stockfish Elo','human_elo':'Maia target human rating'}
+NUMBERS={'advantage_count':'Moves to compare (0 off)','prediction_plies':'Prediction length (plies)','prediction_seconds':'Reply time budget (seconds)','eval_seconds':'Evaluation think time','eval_depth':'Evaluation depth cap','eval_human_elo':'Evaluation human rating','seconds':'Think time (seconds)','depth':'Search depth','multipv':'Candidate moves','threads':'CPU threads per board','hash_mb':'Hash memory (MB)','arrow_count':'Arrow candidates','engine_skill':'Stockfish skill (0–20)','engine_elo':'Stockfish Elo','human_elo':'Maia target human rating'}
 BOOLEANS={'browser_eval_enabled':'Browser evaluation','screen_eval_enabled':'Screen evaluation','predict_continuations':'Predict opponent and my next move','only_my_color':'Only my color','stick_to_move':'Stick to one move','overlay_enabled':'Computer screen arrows','arrow_labels':'Arrow rank labels','show_white':'White suggestions','show_black':'Black suggestions','show_reply':'Opponent best reply','rank_best':'Show #1','rank_second':'Show #2','rank_others':'Show #3 and later','early_suggestions':'Show moves while thinking','global_keys':'Global keyboard shortcuts','always_top':'Desktop stays on top','steady_arrows':'Steady arrows · keep calculating','dashed_reply':'Dashed opponent reply arrow (desktop)'}
-ENUMS={'eval_engine':'Evaluation engine','mode':'Engine limit','source':'Board source','orientation':'Board orientation','turn':'Primary board turn','monitor':'Monitor to scan','engine_kind':'Analysis engine · choose manually','strength_mode':'Stockfish strength mode','playing_style':'Playing style','compare_a':'Compare engine A','compare_b':'Compare engine B','compare_c':'Compare engine C'}
+ENUMS={'advantage_engine':'Scoring engine','eval_engine':'Evaluation engine','mode':'Engine limit','source':'Board source','orientation':'Board orientation','turn':'Primary board turn','monitor':'Monitor to scan','engine_kind':'Analysis engine · choose manually','strength_mode':'Stockfish strength mode','playing_style':'Playing style','compare_a':'Compare engine A','compare_b':'Compare engine B','compare_c':'Compare engine C'}
 ENUMS.update(source='Read from',turn='Side to move',monitor='Display to read')
 BOOLEANS.update(auto_updates='Automatic desktop updates',threats_enabled='Threat highlights',threat_attacks='Attacked squares',threat_mates='Mate-in-one targets',lock_target='Lock target board')
 PRESET_COMMANDS={'apply_preset','save_preset','delete_preset'}
@@ -67,6 +67,8 @@ class PhoneCompanion(QObject):
                     option.update(engine_type=entry.kind,profile=engine_profiles.profile(entry.identity))
             if name=='engine_kind':
                 options=[option for option in options if engine_library.available(engine_library.ENTRIES[option['value']])]
+            if name=='advantage_engine':
+                options=[option for option in options if not field.view().isRowHidden(option['value'])]
             values[name]=value;schema.append({'key':name,'label':label,'type':'select','options':options,'enabled':field.isEnabled()})
         values['extra_engines']=w.extra_engines.profiles
         values['primary_arrow_color']=w.extra_engines.primary_color
@@ -100,7 +102,9 @@ class PhoneCompanion(QObject):
                 self.move_logs.clear()
             cached = history_key, played_moves(board), opening_name(board, w._opening_index)
             self.move_logs[identity] = cached
+        comparison = w.move_advantage.result if identity == 'primary' else None
         return {'id':identity,'title':title,'fen':key[1],'svg':self.svg_cache[key],
+                'move_advantage':comparison if comparison and comparison['fen']==key[1] else None,
                 'played_moves':cached[1],'opening':cached[2],'turn':'White' if board.turn else 'Black',
                 'your_color':'White' if bottom else 'Black','turn_known':known,'lines':lines,'cp':lead['cp'] if lead else None,
                 'mate':lead.get('mate'),'white_share':lead.get('white_share'),
@@ -238,6 +242,8 @@ class PhoneCompanion(QObject):
                 field=getattr(w,key)
                 index=field.findData(value) if key=='monitor' else field.findText(value) if key=='mode' else value
                 if not isinstance(index,int) or not 0<=index<field.count():raise ValueError(f'Invalid choice for {key}.')
+                if key == 'advantage_engine' and field.view().isRowHidden(index) and index != field.currentIndex():
+                    raise ValueError('Install this scoring engine on the desktop first.')
                 validated.append((field,'select',index))
             elif key in ('engine_path','custom_engine') and isinstance(value,str) and len(value)<4096:validated.append((getattr(w,key),'text',value))
             else:raise ValueError(f'Unknown setting: {key}.')

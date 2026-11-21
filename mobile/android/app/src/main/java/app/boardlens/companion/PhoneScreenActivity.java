@@ -14,6 +14,7 @@ import java.util.*;
 public class PhoneScreenActivity extends Activity {
  private PhoneSettings settings;private MobileUi ui;private PhoneDashboard dashboard;
  private boolean movesPage;
+ private MoveAdvantageDialog moveAdvantage;
  private ChessPosition lastOpeningPosition, lastMovePosition;
  private String lastOpening="";
  private TextView movesOpening,movesText;
@@ -31,6 +32,10 @@ public class PhoneScreenActivity extends Activity {
   public String downloadLabel(){return ModelDownloads.running?ModelDownloads.message:"";}
   public void moves(){showMoves();}
   public void practice(){PracticeActivity.open(PhoneScreenActivity.this,true);}
+  public void moveAdvantage(){
+    if(moveAdvantage==null)moveAdvantage=new MoveAdvantageDialog(PhoneScreenActivity.this);
+    moveAdvantage.show(ScreenService.trackedPosition);
+  }
   public void openFloatingMenu(){PhoneScreenActivity.this.openFloatingMenu();}
   public void closeFloatingMenu(){
     settings.p.edit().putBoolean(FloatingControls.ENABLED, false).apply();
@@ -155,6 +160,7 @@ public class PhoneScreenActivity extends Activity {
  private void refresh(){
   if(isFinishing())return;
   ChessPosition position=ScreenService.trackedPosition;
+  if(moveAdvantage!=null)moveAdvantage.update(position);
   if(position!=lastOpeningPosition){
     if(position!=null)OpeningNames.load(this);
     lastOpening=OpeningNames.find(position);lastOpeningPosition=position;
@@ -174,6 +180,7 @@ public class PhoneScreenActivity extends Activity {
                      ScreenService.evaluation,ScreenService.whiteShare,ScreenService.preview);
   }
  }
+ @Override protected void onDestroy(){if(moveAdvantage!=null)moveAdvantage.close();super.onDestroy();}
  @Override protected void onStart(){super.onStart();PhoneUiVisibility.start(this);}
  @Override protected void onStop(){PhoneUiVisibility.stop(this);super.onStop();}
  @Override protected void onResume(){super.onResume();ScreenService.listener=this::refresh;if(pendingOverlay){

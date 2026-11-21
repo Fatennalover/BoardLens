@@ -145,6 +145,7 @@
   "chess_helper/mac_capture.py",
   "chess_helper/mac_hotkeys.py",
   "chess_helper/mac_overlay.py",
+  "chess_helper/move_advantage.py",
   "chess_helper/maia2_uci.py",
   "chess_helper/managed_engines.py",
   "chess_helper/multiboard.py",

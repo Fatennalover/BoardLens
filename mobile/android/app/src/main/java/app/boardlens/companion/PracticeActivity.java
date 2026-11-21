@@ -183,6 +183,8 @@ public final class PracticeActivity extends Activity {
       ui.gap(page, 8);
       page.addView(ui.button("Review game", false, this::openReview));
     }
+    ui.gap(page, 8);
+    page.addView(ui.button("Move advantage", false, this::showMoveAdvantage));
     MobileUi.inset(this, root);
     setContentView(root);
     updateTurn();
@@ -214,6 +216,13 @@ public final class PracticeActivity extends Activity {
   }
 
   private PracticeLine reviewLine() { return showingContinuation ? continuation : played; }
+  private MoveAdvantageDialog moveAdvantage;
+
+  private void showMoveAdvantage() {
+    if (moveAdvantage == null) moveAdvantage = new MoveAdvantageDialog(this);
+    moveAdvantage.show(position());
+  }
+
   private ChessPosition position() { return reviewing ? reviewLine().at(reviewIndex) : played.last(); }
 
   private void render() {
@@ -595,6 +604,7 @@ public final class PracticeActivity extends Activity {
     }
   }
   @Override protected void onDestroy() {
+    if (moveAdvantage != null) moveAdvantage.close();
     cancel();
     extraEngines.close();
     worker.execute(engines::close);

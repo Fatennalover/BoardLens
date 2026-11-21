@@ -879,6 +879,31 @@
     ]
   },
   {
+    "id": "move-advantage",
+    "category": "Engines",
+    "title": "Compare how moves change the score",
+    "summary": "Move advantage shows the estimated score after up to six moves and the change for the side to move.",
+    "details": "The starting score comes from a separate search of the current position. Each candidate's score accounts for the engine's expected reply. Mate distances appear in place of pawn scores. The scoring engine uses Evaluation think time and the depth cap.",
+    "steps": [
+      "Open Move advantage next to Analysis and Moves.",
+      "Choose a scoring engine and set how many moves to compare.",
+      "Read After for the move's estimated score and Change for the gain or drop relative to the current estimate. Set the count to zero to turn it off."
+    ],
+    "questions": [
+      "Which move increases my advantage?",
+      "Can I use Stockfish to compare moves while Maia recommends moves?"
+    ],
+    "aliases": [
+      "candidate score",
+      "score change",
+      "move delta"
+    ],
+    "controls": [
+      "advantage_engine",
+      "advantage_count"
+    ]
+  },
+  {
     "id": "predicted-continuation",
     "category": "Engines",
     "title": "Predict the next two moves",

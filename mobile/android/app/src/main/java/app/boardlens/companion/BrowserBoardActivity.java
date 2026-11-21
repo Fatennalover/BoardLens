@@ -38,6 +38,7 @@ public final class BrowserBoardActivity extends Activity {
     private String script,lastKey="",visibleFen="";
     private boolean whiteBottom=true;
     private ChessPosition position;
+    private MoveAdvantageDialog moveAdvantage;
     private PhoneEngine.Result recommendation;
     private LocalEngines.Evaluated evaluation;
     private final Runnable observeSettings = () -> lastKey="";
@@ -79,7 +80,14 @@ public final class BrowserBoardActivity extends Activity {
         root.addView(controls);
         status=ui.text("Direct read · Open a board",14,MobileUi.MUTED,false);
         status.setPadding(ui.dp(10),ui.dp(4),ui.dp(10),ui.dp(4));
-        root.addView(status);
+        LinearLayout boardStatus=new LinearLayout(this);
+        boardStatus.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        boardStatus.addView(status,new LinearLayout.LayoutParams(0,-2,1));
+        boardStatus.addView(ui.button("Move advantage",false,()->{
+            if(moveAdvantage==null)moveAdvantage=new MoveAdvantageDialog(this);
+            moveAdvantage.show(position);
+        }));
+        root.addView(boardStatus);
         page=new WebView(this);
         page.setBackgroundColor(Color.rgb(29,33,31));
         page.getSettings().setJavaScriptEnabled(true);
@@ -270,6 +278,7 @@ public final class BrowserBoardActivity extends Activity {
             reset();status.setText("No legal move on this board");return;
         }
         position=board;
+        if(moveAdvantage!=null)moveAdvantage.update(board);
         recommendation=null;
         long token=generation.incrementAndGet();
         moves.cancel();evaluator.cancel();
@@ -353,6 +362,7 @@ public final class BrowserBoardActivity extends Activity {
     private void reset() {
         generation.incrementAndGet();moves.cancel();evaluator.cancel();extraEngines.cancel();
         position=null;recommendation=null;evaluation=null;lastKey="";
+        if(moveAdvantage!=null)moveAdvantage.update(null);
         if(loaded&&page!=null)page.evaluateJavascript("window.boardLensLocalHints=null",null);
     }
     @Override protected void onStart(){
@@ -376,6 +386,7 @@ public final class BrowserBoardActivity extends Activity {
         if (page!=null) page.saveState(state);
     }
     @Override protected void onDestroy(){
+        if(moveAdvantage!=null)moveAdvantage.close();
         main.removeCallbacksAndMessages(null);
         discardPopup();
         extraEngines.close();

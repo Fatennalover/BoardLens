@@ -13,6 +13,7 @@ final class PhoneDashboard {
     default String downloadLabel(){return "";}
     default void moves(){}
     default void practice(){}
+    default void moveAdvantage(){}
     default void openFloatingMenu(){}
     default void closeFloatingMenu(){}
     default String timeLabel(){return "Thinking time";}default void timeSettings(){settings();}
@@ -80,6 +81,8 @@ final class PhoneDashboard {
     ui.gap(analysis,6);
     engine=ui.text("",15,MobileUi.MUTED,false);
     analysis.addView(engine);
+    ui.gap(analysis,8);
+    analysis.addView(ui.button("Move advantage",false,a::moveAdvantage));
     ui.gap(analysis,14);
     moves=ui.text("Waiting for a board",21,MobileUi.FG,true);
     analysis.addView(moves);
