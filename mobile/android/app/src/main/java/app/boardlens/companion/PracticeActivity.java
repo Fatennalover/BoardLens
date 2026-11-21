@@ -185,7 +185,10 @@ public final class PracticeActivity extends Activity {
     }
     ui.gap(page, 8);
     coach = new CoachPanel(this, ui, settings);
-    row(page, ui.button("Coach", false, () -> coach.options(this::render)),
+    row(page, ui.button("Coach", false, () -> coach.options(() -> {
+        render();
+        if (!reviewing && coach.count() > 0) suggest();
+    })),
         ui.button("Move advantage", false, this::showMoveAdvantage));
     page.addView(coach.view(), new LinearLayout.LayoutParams(-1, ui.dp(182)));
     MobileUi.inset(this, root);
@@ -256,7 +259,10 @@ public final class PracticeActivity extends Activity {
           + "\n" + board.simple(best.move()) + " · " + board.notation(best.move());
       if (reviewing && !best.pv().isEmpty()) displayed += "\nEngine line · " + continuationText(board, best.pv());
       int color = Color.parseColor(settings.mainColor());
-      for (PhoneEngine.Line line : lines) arrows.add(new StudioBoard.Arrow(line.move(), color));
+      int arrowsToShow = Math.min(reviewing ? 1 : settings.moves(), lines.size());
+      for (PhoneEngine.Line line : lines.subList(0, arrowsToShow)) {
+        arrows.add(new StudioBoard.Arrow(line.move(), color));
+      }
     }
     if (reviewing) {
       String recorded = reviewLine().nextMove(reviewIndex);
@@ -451,7 +457,7 @@ public final class PracticeActivity extends Activity {
   private void suggest() {
     ChessPosition board = played.last();
     if (!PracticeLine.outcome(board, false).isEmpty() || !engineReady()) return;
-    PhoneSettings limits = settings.override(Map.of("engine", engineId));
+    PhoneSettings limits = coach.withCandidates(settings.override(Map.of("engine", engineId)));
     int ticket = begin("Analyzing with " + EngineCatalog.get(engineId).name() + "…");
     if (settings.arrows()) {
       extraEngines.request(this, board, limits, uiHandler, () -> {
@@ -504,7 +510,8 @@ public final class PracticeActivity extends Activity {
   private void reviewSearch(boolean simulate) {
     if (!engineReady()) return;
     String name = EngineCatalog.get(engineId).name();
-    PhoneSettings limits = settings.override(Map.of("engine", engineId, "moves", 1, "predict", false));
+    PhoneSettings limits = coach.withCandidates(
+        settings.override(Map.of("engine", engineId, "moves", 1, "predict", false)));
     List<ChessPosition> positions = new ArrayList<>();
     if (simulate) {
       ChessPosition start = position();

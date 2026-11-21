@@ -8,6 +8,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 final class CoachPanel {
     static final String PREFERENCE = "coach_moves";
@@ -37,8 +38,14 @@ final class CoachPanel {
         return view;
     }
 
-    private int count() {
+    int count() {
         return Math.max(0, Math.min(COUNTS.length - 1, settings.p.getInt(PREFERENCE, 0)));
+    }
+
+    PhoneSettings withCandidates(PhoneSettings limits) {
+        int count = count();
+        if (count <= limits.moves() || EngineCatalog.get(limits.engine()).tiny()) return limits;
+        return limits.override(Map.of("moves", count));
     }
 
     void options(Runnable onChanged) {

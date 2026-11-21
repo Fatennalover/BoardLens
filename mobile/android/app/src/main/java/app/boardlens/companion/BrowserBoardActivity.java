@@ -47,6 +47,7 @@ public final class BrowserBoardActivity extends Activity {
         if (FloatingControls.BROWSER_ENABLED.equals(key)) return;
         if (CoachPanel.PREFERENCE.equals(key)) {
             renderCoach();
+            if (coach.count()>0) lastKey="";
             return;
         }
         if (ArrowEngines.isColorKey(key) || "arrows".equals(key) || "onlyMine".equals(key)
@@ -293,7 +294,7 @@ public final class BrowserBoardActivity extends Activity {
         long token=generation.incrementAndGet();
         moves.cancel();evaluator.cancel();
         ChessPosition root=board;
-        PhoneSettings configuration=settings.snapshot();
+        PhoneSettings configuration=coach.withCandidates(settings.snapshot());
         status.setText(turnText(board));
         publish();
         extraEngines.request(this,root,configuration,main,this::publish);
@@ -359,7 +360,8 @@ public final class BrowserBoardActivity extends Activity {
             JSONArray arrows=new JSONArray();
             if(settings.arrows() && recommendation!=null && (!settings.onlyMine()||position.white==whiteBottom)){
                 int rank=0;
-                for(var line:recommendation.lines()){
+                var lines=recommendation.lines();
+                for(var line:lines.subList(0,Math.min(settings.moves(),lines.size()))){
                     arrows.put(new JSONObject().put("move",line.move()).put("color",rank++==0?settings.mainColor():"#ba9cff"));
                 }
             }
