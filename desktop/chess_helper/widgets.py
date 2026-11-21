@@ -11,7 +11,7 @@ from PySide6.QtSvg import QSvgRenderer
 
 from .capture import bgr_pixmap
 from .core import cell_to_square, square_to_cell
-from .overlay import paint_arrows,paint_marks
+from .overlay import DEFAULT_OVERLAP_COLOR, paint_arrows, paint_marks
 
 
 class BoardView(QWidget):
@@ -26,6 +26,7 @@ class BoardView(QWidget):
         self.white_bottom = True
         self.best_move = None
         self.arrows = []
+        self.overlap_color = DEFAULT_OVERLAP_COLOR
         self.marks = []
         self.selected = None
         root = Path(__file__).parent / "assets/pieces"
@@ -119,7 +120,7 @@ class BoardView(QWidget):
                        Qt.AlignmentFlag.AlignCenter, str(rank))
         paint_marks(p,rect,self.white_bottom,self.marks)
         if self.arrows:
-            paint_arrows(p,rect,self.white_bottom,self.arrows)
+            paint_arrows(p, rect, self.white_bottom, self.arrows, self.overlap_color)
         elif self.best_move:
             def center(square):
                 row, col = square_to_cell(square, self.white_bottom)
@@ -152,6 +153,7 @@ class EvalBar(QWidget):
         self.white_share = None
         self.white_bottom = True
         self.pending = False
+        self.hold_last_score = True
         self._fraction = .5
         self._target = .5
         self._animation = QVariantAnimation(self)
@@ -169,7 +171,7 @@ class EvalBar(QWidget):
 
     def update(self, *args):
         # An unknown/pending score retains the last fill, never a flash to 50/50.
-        target = self._target
+        target = self._target if self.hold_last_score else .5
         if self.white_share is not None:
             target = self.white_share
         if self.cp is not None:

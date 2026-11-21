@@ -9,9 +9,17 @@ No paid AI subscription is required. Normal recognition and engine analysis run 
 
 ## See it in action
 
-**Desktop on macOS — the shared Mac/Windows interface**
+### Practice on macOS
 
-![BoardLens desktop with engine lines, candidate arrows and evaluation](docs/images/desktop-mac.png)
+Switch a scanned board to **Practice** or open an image in **Screenshot**. Choose **Side to move**, play moves on the board, and enable **Auto suggest** to update the arrows as you play.
+
+![BoardLens Practice with the side-to-move picker, Stockfish analysis and a move arrow](docs/images/desktop-mac.png)
+
+### Game review
+
+Open **Review game** to analyze your recorded moves with Stockfish or another configured engine. Select a move to see the position and evaluation, or select **Play out from here** for an engine continuation. For an imported screenshot, move history starts at the position in the image.
+
+![BoardLens Game review with a clickable move list, evaluation and an arrow showing checkmate](docs/images/desktop-game-review.png)
 
 ### Android 1.9.8
 
@@ -35,7 +43,7 @@ Open the [BoardLens releases](https://github.com/Fatennalover/BoardLens/releases
 
 | Device | Download | Start |
 | --- | --- | --- |
-| Mac (Apple Silicon) | `BoardLens-Mac-AppleSilicon.dmg` | Extract, then open **BoardLens.app**. macOS 14+. |
+| Mac (Apple Silicon) | [BoardLens 2.19.9 ZIP](https://github.com/Fatennalover/BoardLens/releases/download/v2.19.9/BoardLens-Mac-AppleSilicon.zip) | Unzip, then open **BoardLens.app**. macOS 14+. |
 | Mac (Intel) | `BoardLens-Mac-Intel.dmg` | Extract, then open **BoardLens.app**. macOS 14+. |
 | Windows 10/11 (64-bit) | `BoardLens-Windows-x64.zip` | Extract the entire folder, then open **BoardLens.exe**. Keep Resources beside it. |
 | Android | [BoardLens-Companion-Android.apk](https://github.com/Fatennalover/BoardLens/releases/download/android-v1.9.12/BoardLens-Companion-Android.apk) | Phone screen → Settings → Models & downloads, then Start. Computer companion is optional. |
@@ -150,7 +158,7 @@ GPL-3.0-or-later. Bundled recognition models, artwork and other components retai
 
 ### Mac installation
 
-Download the Apple silicon or Intel DMG, open it, and drag **BoardLens → Applications**. Eject the installer and open the installed app. The installer uses a fixed, Retina-ready layout and a rounded app icon. Settings stay in your user profile when you replace the app.
+Unzip the Apple Silicon download and move **BoardLens.app** into **Applications**. On Intel Macs, open the DMG, drag **BoardLens** into **Applications**, then eject the installer. Settings stay in your user profile when you replace the app.
 
 Accessibility is checked quietly on launch. Only the local 3D reader needs it; ordinary 2D screen reading uses Screen Recording, and global shortcuts use the native hotkey system. Restoring saved settings never opens an Accessibility request. Use **Board → App → Permissions** for an explicit permission action.
 

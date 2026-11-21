@@ -132,6 +132,7 @@
   "chess_helper/eval_overlay.py",
   "chess_helper/evaluation.py",
   "chess_helper/foreground.py",
+  "chess_helper/game_review.py",
   "chess_helper/game_end.py",
   "chess_helper/help_dialog.py",
   "chess_helper/help_index.py",

@@ -1,5 +1,5 @@
 {
- "manifest_version":3,"name":"BoardLens Browser Reader","version":"3.4.2",
+ "manifest_version":3,"name":"BoardLens Browser Reader","version":"3.4.3",
  "description":"Optional local board reader for Chess.com and Lichess analysis and bot boards.",
  "permissions":["storage"],"host_permissions":["http://127.0.0.1:8788/*"],
  "background":{"service_worker":"background.js"},"action":{"default_popup":"popup.html"},

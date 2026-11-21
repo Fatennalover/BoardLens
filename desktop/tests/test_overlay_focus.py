@@ -129,26 +129,53 @@ def test_hidden_overlay_is_always_excluded_during_capture_races(qt,monkeypatch):
     window.close()
 
 
-def test_primary_move_stays_visible_above_overlapping_reply(qt):
+def test_only_the_shared_part_of_overlapping_arrows_changes_color(qt):
     import chess
     from PySide6.QtCore import QRectF, Qt
-    from PySide6.QtGui import QImage, QPainter
-    from chess_helper.overlay import paint_arrows
+    from PySide6.QtGui import QColor, QImage, QPainter
+    from chess_helper.overlay import DEFAULT_OVERLAP_COLOR, paint_arrows
 
-    position = chess.Board("8/1RP2ppk/8/4p3/7p/2r4P/5PP1/7K w - - 0 41")
+    position = chess.Board("7k/2P5/8/8/8/2r5/8/K7 w - - 0 1")
+    separate_move = position.parse_uci("a1a2")
     promotion = position.parse_uci("c7c8q")
     position.push(promotion)
     reply = position.parse_uci("c3c8")
-    image = QImage(800, 800, QImage.Format.Format_ARGB32_Premultiplied)
-    image.fill(Qt.GlobalColor.transparent)
-    painter = QPainter(image)
-    paint_arrows(painter, QRectF(0, 0, 800, 800), True, [
+    arrows = [
         {"move": promotion, "color": "#ffb454"},
         {"move": reply, "color": "#53e2e4", "reply": True},
-    ])
-    painter.end()
+        {"move": separate_move, "color": "#e38e13"},
+    ]
+    for color in (DEFAULT_OVERLAP_COLOR, "#38e67b"):
+        image = QImage(800, 800, QImage.Format.Format_ARGB32_Premultiplied)
+        image.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(image)
+        paint_arrows(painter, QRectF(0, 0, 800, 800), True, arrows, color)
+        painter.end()
 
-    overlap = image.pixelColor(250, 100)
-    reply_only = image.pixelColor(250, 300)
-    assert overlap.red() > overlap.blue()
-    assert reply_only.blue() > reply_only.red()
+        assert image.pixelColor(250, 100) == QColor(color)
+        assert image.pixelColor(250, 300).blue() > image.pixelColor(250, 300).red()
+        assert image.pixelColor(50, 700).red() > image.pixelColor(50, 700).blue()
+        assert image.pixelColor(400, 300).alpha() == 0
+
+
+def test_overlap_picker_applies_and_saves_the_color(qt, monkeypatch):
+    from PySide6.QtGui import QColor
+    from PySide6.QtWidgets import QColorDialog
+    from chess_helper.overlay import DEFAULT_OVERLAP_COLOR
+
+    window = MainWindow()
+    try:
+        assert window.overlap_arrow_button.color == DEFAULT_OVERLAP_COLOR
+        monkeypatch.setattr(QColorDialog, "getColor", lambda *_: QColor("#38e67b"))
+        window.overlap_arrow_button.click()
+        assert window.board_view.overlap_color == "#38e67b"
+        assert window.overlay.overlap_color == "#38e67b"
+        assert window.multi.primary_card.view.overlap_color == "#38e67b"
+        assert window.autosave_timer.isActive()
+    finally:
+        window.close()
+    restored = MainWindow()
+    try:
+        assert restored.overlap_arrow_button.color == "#38e67b"
+    finally:
+        restored.close()

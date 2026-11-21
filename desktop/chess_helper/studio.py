@@ -1,11 +1,14 @@
 """Appearance helpers for the native BoardLens layout."""
 from pathlib import Path
 
+from PySide6.QtCore import Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QColorDialog, QPushButton
 
 
 class ArrowColorButton(QPushButton):
+    color_changed = Signal(str)
+
     def __init__(self, color, label):
         super().__init__()
         self.setAccessibleName(label)
@@ -21,8 +24,9 @@ class ArrowColorButton(QPushButton):
 
     def choose(self):
         color = QColorDialog.getColor(QColor(self.color), self, self.accessibleName())
-        if color.isValid():
+        if color.isValid() and color.name() != self.color:
             self.set_color(color)
+            self.color_changed.emit(self.color)
 
 
 WORKSPACE_STYLE = """

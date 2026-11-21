@@ -283,3 +283,32 @@ def test_live_poll_falls_back_to_screen_and_switches_back_automatically(qt,monke
         assert window.browser_reader_button.isChecked()
     finally:
         window.close()
+
+
+def test_replaces_a_puzzle_at_the_same_location_without_a_move_highlight(qt, monkeypatch):
+    window = MainWindow()
+    try:
+        window.source.blockSignals(True)
+        window.source.setCurrentIndex(1)
+        window.source.blockSignals(False)
+        window._monitoring = True
+        monkeypatch.setattr(window, "suggest", lambda **_: None)
+        screen = QGuiApplication.primaryScreen()
+        key = screen_key(screen)
+        first = exact_read(chess.STARTING_FEN, True, None)
+        window.live_finished(window._live_token, (key, screen.name(), first, 1024, 768), "")
+        assert window._screen_confirmed
+
+        puzzle = chess.Board("7k/2P5/8/8/8/2r5/8/K7 w - - 0 1")
+        replacement = exact_read(puzzle.fen(), True, None)
+        replacement.exact_fen = replacement.turn_hint = None
+        answer = (key, screen.name(), replacement, 1024, 768)
+        for _ in range(2):
+            window.live_finished(window._live_token, answer, "")
+            assert window.tracker.board.board_fen() == chess.STARTING_BOARD_FEN
+        window.live_finished(window._live_token, answer, "")
+        assert window._screen_confirmed
+        assert window.tracker.board.board_fen() == puzzle.board_fen()
+        assert window._monitoring
+    finally:
+        window.close()

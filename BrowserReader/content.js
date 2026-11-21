@@ -78,6 +78,39 @@
     window.postMessage({boardlensPlay:result.play},location.origin);
   }catch{/* The next observation will confirm the move or pause autoplay. */}
  }
+ function svg(tag,attributes){
+  const node=document.createElementNS(ns,tag);
+  for(const [name,value] of Object.entries(attributes))node.setAttribute(name,value);
+  return node;
+ }
+ function arrowLayers(board,hint){
+  const definitions=svg('defs',{}),base=[],overlaps=[],ids=[];
+  const r=board.rect,head=Math.max(10,r.width/28),width=Math.max(4,r.width/85);
+  const overlapColor=/^#[0-9a-f]{6}$/i.test(hint.overlap_color||'')?hint.overlap_color:'#a855f7';
+  for(const arrow of hint.arrows||[]){
+   const from=board.points[arrow.move.slice(0,2)],to=board.points[arrow.move.slice(2,4)];
+   if(!from||!to)continue;
+   const start=[r.x+from[0]*r.width,r.y+from[1]*r.height];
+   const end=[r.x+to[0]*r.width,r.y+to[1]*r.height];
+   const angle=Math.atan2(end[1]-start[1],end[0]-start[0]);
+   const id=`boardlens-arrow-${board.index}-${ids.length}`;
+   const shape=svg('g',{id});
+   const line=svg('path',{d:`M ${start.join(' ')} L ${end.join(' ')}`,stroke:'currentColor','stroke-width':width,'stroke-linecap':'round',fill:'none'});
+   if(arrow.dashed)line.setAttribute('stroke-dasharray',width*1.6+' '+width);
+   const tip=svg('path',{d:`M ${end.join(' ')} L ${end[0]-head*Math.cos(angle-.5)} ${end[1]-head*Math.sin(angle-.5)} L ${end[0]-head*Math.cos(angle+.5)} ${end[1]-head*Math.sin(angle+.5)} Z`,fill:'currentColor'});
+   shape.append(line,tip);definitions.append(shape);
+   base.push(svg('use',{href:'#'+id,color:arrow.color,opacity:'.85'}));
+   if(ids.length){
+    const maskId=id+'-overlap';
+    const mask=svg('mask',{id:maskId,maskUnits:'userSpaceOnUse',x:r.x,y:r.y,width:r.width,height:r.height});
+    for(const previous of ids)mask.append(svg('use',{href:'#'+previous,color:'#ffffff'}));
+    definitions.append(mask);
+    overlaps.push(svg('use',{href:'#'+id,color:overlapColor,mask:`url(#${maskId})`}));
+   }
+   ids.push(id);
+  }
+  return base.length?[definitions,...base,...overlaps]:[];
+ }
  window.addEventListener('message',async event=>{
   if(event.source!==window||event.origin!==location.origin||!event.data?.boardlensRead)return;
   const boards=event.data.boards;if(!Array.isArray(boards)||boards.length>3)return;
@@ -112,12 +145,7 @@
      if(m.kind!=='attack'){circle.setAttribute('stroke',m.color);circle.setAttribute('stroke-width','2')}
      fragments.push(circle);
     }
-    for(const a of hint[1].arrows||[]){
-     const from=b.points[a.move.slice(0,2)],to=b.points[a.move.slice(2,4)];if(!from||!to)continue;
-     const r=b.rect,start=[r.x+from[0]*r.width,r.y+from[1]*r.height],end=[r.x+to[0]*r.width,r.y+to[1]*r.height],angle=Math.atan2(end[1]-start[1],end[0]-start[0]),head=Math.max(10,r.width/28),width=Math.max(4,r.width/85);
-     let line=document.createElementNS(ns,'path');line.setAttribute('d',`M ${start.join(' ')} L ${end.join(' ')}`);line.setAttribute('stroke',a.color);line.setAttribute('stroke-width',width);line.setAttribute('stroke-linecap','round');line.setAttribute('fill','none');line.setAttribute('opacity','.85');if(a.dashed)line.setAttribute('stroke-dasharray',width*1.6+' '+width);fragments.push(line);
-     let triangle=document.createElementNS(ns,'path');triangle.setAttribute('d',`M ${end.join(' ')} L ${end[0]-head*Math.cos(angle-.5)} ${end[1]-head*Math.sin(angle-.5)} L ${end[0]-head*Math.cos(angle+.5)} ${end[1]-head*Math.sin(angle+.5)} Z`);triangle.setAttribute('fill',a.color);fragments.push(triangle);
-    }
+    fragments.push(...arrowLayers(b,hint[1]));
    }
    layer.replaceChildren(...fragments);
   }catch(error){if(String(error).includes('context invalidated')){notice.textContent='BoardLens: reload this chess tab to reconnect the reader.';notice.hidden=false}if(Date.now()-last>1500){layer.replaceChildren();clearEvaluations()}}finally{busy=false}

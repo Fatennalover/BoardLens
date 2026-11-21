@@ -89,27 +89,45 @@
   const path=location.pathname.replace(/\/$/,'')||'/';
   return path==='/'||(location.hostname==='www.chess.com'&&path==='/home');
  }
+ function puzzlePage(){
+  return /^\/(?:puzzles|training)(?:\/|$)/.test(location.pathname);
+ }
  function read(){
   if(document.visibilityState!=='visible'||dashboard())return [];
-  return [...document.querySelectorAll('wc-chess-board,cg-board')].filter(e=>fullyVisible(e.getBoundingClientRect())).slice(0,3).map((e,index)=>{
+  const puzzle=puzzlePage();
+  const boards=[...document.querySelectorAll('wc-chess-board,cg-board')];
+  if(!boards.length&&puzzle)boards.push(...document.querySelectorAll('chess-board'));
+  return boards.filter(e=>fullyVisible(e.getBoundingClientRect())).slice(0,3).map((e,index)=>{
    try {
    const rect=e.getBoundingClientRect(),g=e.game;let fen,turnHint=null,bottom=true,points={},exact=false,is3d=!!e.querySelector('canvas');
    const practice=practicePosition(e);
+   let gameFen;
+   try{gameFen=g?.getFEN?.()}catch{}
    if(practice?.kind==='analysis'){
     fen=practice.fen;exact=true;bottom=practice.ground.state.orientation==='white';
-   }else if(g&&typeof g.getFEN==='function'){
-    fen=g.getFEN();exact=true;bottom=!(g.getOptions?.()?.flipped??e.closest('.orientation-black'));
+   }else if(typeof gameFen==='string'&&gameFen){
+    fen=gameFen;exact=true;bottom=!(g.getOptions?.()?.flipped??e.closest('.orientation-black'));
     const renderer=g.getRenderer?.(),canvas=e.querySelector('canvas');
     if(is3d&&renderer?.getCoordsFromSquare&&canvas){
      for(let rank=1;rank<=8;rank++)for(let f=0;f<8;f++){const square=String.fromCharCode(97+f)+rank,p=renderer.getCoordsFromSquare(square);points[square]=[p.x/canvas.width,p.y/canvas.height]}
      bottom=points.a1[1]>points.a8[1];
     }
    }else{
-    let map={};bottom=!e.closest('.orientation-black');
-    for(const piece of e.querySelectorAll('piece')){
+    const map={};
+    const tiles=e.shadowRoot||e;
+    bottom=!e.closest('.orientation-black,.flipped')&&!tiles.querySelector('.board.flipped');
+    for(const piece of tiles.querySelectorAll('piece')){
      const classes=[...piece.classList],name=Object.keys(names).find(n=>classes.includes(n));if(!name||classes.includes('ghost'))continue;
      const r=piece.getBoundingClientRect();let f=Math.round((r.left-rect.left)/(rect.width/8)),row=Math.round((r.top-rect.top)/(rect.height/8));if(f<0||f>7||row<0||row>7)continue;
      const square=String.fromCharCode(97+(bottom?f:7-f))+(bottom?8-row:row+1),p=names[name];map[square]=classes.includes('white')?p.toUpperCase():p;
+    }
+    for(const piece of tiles.querySelectorAll('.piece[class*="square-"]:not(.ghost)')){
+     const classes=[...piece.classList];
+     const symbol=classes.find(value=>/^[wb][kqrbnp]$/.test(value));
+     const square=classes.find(value=>/^square-[1-8]{2}$/.test(value));
+     if(!symbol||!square)continue;
+     const cell=String.fromCharCode(96+Number(square[7]))+square[8];
+     map[cell]=symbol[0]==='w'?symbol[1].toUpperCase():symbol[1];
     }
     const wrap=e.closest('.cg-wrap')?.parentElement?.parentElement;
     const runningTop=wrap?.querySelector('.rclock-top.running'),runningBottom=wrap?.querySelector('.rclock-bottom.running');
@@ -124,6 +142,7 @@
       if(occupied.length===1)turnHint=occupied[0]===occupied[0].toLowerCase();
      }
     }
+    if(turnHint===null&&puzzle)turnHint=bottom;
     fen=fenOf(map,turnHint===false?'b':'w');
    }
    if(!fen)return null;

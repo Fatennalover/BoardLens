@@ -31,12 +31,14 @@ def opening_name(board, openings):
         current.pop()
 
 
-def played_moves(board):
+def played_moves(board, move_label=None):
     position = board.root()
     rows = []
-    for move in board.move_stack:
+    for index, move in enumerate(board.move_stack, 1):
         number = position.fullmove_number
         san = position.san(move)
+        if move_label is not None:
+            san = move_label(index, san)
         if position.turn:
             rows.append(f"{number}. {san}")
         elif rows:

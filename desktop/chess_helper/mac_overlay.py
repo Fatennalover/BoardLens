@@ -6,6 +6,7 @@ from Foundation import NSData
 from PySide6.QtCore import QByteArray, QBuffer, QIODevice, QRectF
 from PySide6.QtGui import QImage, QPainter
 from PySide6.QtCore import Qt
+from .overlay import DEFAULT_OVERLAP_COLOR
 
 
 class BoardLensPassivePanel(AppKit.NSPanel):
@@ -55,9 +56,10 @@ class PassivePanel:
         self.panel.setContentView_(self.view)
         self.signature = None
 
-    def update(self, geometry, scale, white_bottom, arrows, primary_height, marks=None):
+    def update(self, geometry, scale, white_bottom, arrows, primary_height, marks=None,
+               overlap_color=DEFAULT_OVERLAP_COLOR):
         marks=marks or []
-        signature = (geometry.getRect(), scale, white_bottom,
+        signature = (geometry.getRect(), scale, white_bottom, overlap_color,
                      tuple((a['move'].uci(), a['color'], a.get('label'), a.get('reply'),a.get('dashed'),tuple(sorted((a.get('points') or {}).items()))) for a in arrows),
                      tuple((m['square'],m['color'],m['kind'],tuple(sorted((m.get('points') or {}).items()))) for m in marks))
         if signature != self.signature:
@@ -68,7 +70,7 @@ class PassivePanel:
             image.fill(Qt.GlobalColor.transparent)
             painter = QPainter(image)
             paint_marks(painter,QRectF(0,0,width,height),white_bottom,marks)
-            paint_arrows(painter, QRectF(0, 0, width, height), white_bottom, arrows)
+            paint_arrows(painter, QRectF(0, 0, width, height), white_bottom, arrows, overlap_color)
             painter.end()
             data = QByteArray()
             buffer = QBuffer(data)

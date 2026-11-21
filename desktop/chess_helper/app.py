@@ -10,8 +10,8 @@ from pathlib import Path
 
 import chess
 import cv2
-from PySide6.QtCore import QObject, QTimer, Qt, Signal, QRect
-from PySide6.QtGui import QGuiApplication, QKeySequence, QShortcut, QFont, QTextOption
+from PySide6.QtCore import QObject, QSignalBlocker, QTimer, Qt, Signal, QRect
+from PySide6.QtGui import QColor, QGuiApplication, QKeySequence, QShortcut, QFont, QTextOption
 from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QFileDialog, QGridLayout,
     QFormLayout, QGroupBox, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMainWindow,
     QMessageBox, QPushButton, QDoubleSpinBox, QScrollArea, QSpinBox, QSplitter,
@@ -32,7 +32,7 @@ from .phone import PhoneCompanion
 from . import engine_config,engine_library
 from .hints import LiveHintFilter
 from .recognition import Recognizer, position_from_read
-from .overlay import BoardOverlay
+from .overlay import BoardOverlay, DEFAULT_OVERLAP_COLOR
 from .foreground import foreground_kind
 from .vision import Templates, detect_boards
 from .widgets import BoardView, CropDialog, EvalBar, BoardArea
@@ -40,7 +40,7 @@ from .analysis_presets import AnalysisPresets
 from .target_lock import TargetLock
 from .branding import BrandBanner, app_icon
 from .ui_controls import ResponsiveScrollArea
-from .studio import WORKSPACE_STYLE
+from .studio import ArrowColorButton, WORKSPACE_STYLE
 from .openings import load_openings, opening_name, played_moves
 from .threats import presentation as threat_presentation
 
@@ -100,6 +100,9 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1180, 740)
         self.setStyleSheet(WORKSPACE_STYLE)
         self.settings = load_settings()
+        saved_color = self.settings.get("overlap_arrow_color")
+        overlap = QColor(saved_color) if isinstance(saved_color, str) else QColor()
+        self.overlap_color = overlap.name() if overlap.isValid() else DEFAULT_OVERLAP_COLOR
         self._opening_position = object()
         self._opening_index = None
         self._moves_position = object()
@@ -119,6 +122,8 @@ class MainWindow(QMainWindow):
             pass
         self.region = None
         self.snapshot = None
+        self._screenshot_position = None
+        self.game_review = None
         self.result = None
         self._pinned_result = None
         self.hint_filter=LiveHintFilter()
@@ -221,14 +226,13 @@ class MainWindow(QMainWindow):
         self.brand.set_compact(enabled)
         self.board_summary.setVisible(enabled)
         self.analysis_panel.setVisible(not enabled)
-        self.compact_moves.setVisible(enabled)
+        self.compact_moves.setVisible(enabled and not self.editable_position)
         self.full_analysis_button.setVisible(not enabled)
         self.board_page_button.setVisible(not enabled)
         self.setMinimumSize(530 if enabled else 920, 720)
         self.splitter.setOrientation(Qt.Orientation.Vertical if enabled else Qt.Orientation.Horizontal)
         self.board_panel.setMinimumWidth(0 if enabled else 430)
         self.analysis_panel.setMinimumWidth(0 if enabled else 350)
-        self.board_area.setMinimumHeight(300 if enabled else 330)
         if enabled:
             if self.workspace_stack.currentWidget() is self.settings_page:
                 self.workspace_stack.setCurrentIndex(0)
@@ -261,8 +265,11 @@ class MainWindow(QMainWindow):
                     grid.addWidget(button, 0, column)
 
     def open_moves(self):
+        if self.editable_position:
+            self.open_game_review()
+            return
         board = self.tracker.board
-        visible = self.practice or self.source.currentIndex() == 2 or self._reviewing or self._screen_confirmed
+        visible = self._reviewing or self._screen_confirmed
         dialog = QDialog(self)
         dialog.setWindowTitle("Moves")
         layout = QVBoxLayout(dialog)
@@ -274,6 +281,29 @@ class MainWindow(QMainWindow):
         self._button("Done", dialog.accept, layout)
         dialog.resize(420, 460)
         dialog.exec()
+
+    def open_game_review(self, start_at=None):
+        if not self.editable_position:
+            return
+        from .game_review import GameReview
+        board = self.tracker.board
+        if self.game_review is not None:
+            if self.game_review.matches(board):
+                self.game_review.reopen(start_at)
+                return
+            self.game_review.close()
+        review = GameReview(self, board, start_at)
+        self.game_review = review
+        review.finished.connect(lambda _: self._release_review(review))
+        review.show()
+
+    def _release_review(self, review):
+        if self.game_review is review:
+            self.game_review = None
+
+    def review_move_link(self, url):
+        if self.editable_position and url.scheme() == "move" and url.path().isdecimal():
+            self.open_game_review(int(url.path()))
 
     def load_opening_index(self):
         try:
@@ -287,7 +317,7 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "analysis_tabs"):
             return
         board = self.tracker.board
-        visible = self.practice or self.source.currentIndex() == 2 or self._reviewing or self._screen_confirmed
+        visible = self.editable_position or self._reviewing or self._screen_confirmed
         key = (board.fen(), tuple(board.move_stack)) if visible else None
         if key != self._opening_position:
             name = opening_name(board, self._opening_index) if visible else ""
@@ -295,10 +325,16 @@ class MainWindow(QMainWindow):
             self.opening_label.setVisible(visible and bool(name))
             self.moves_opening.setText(name or "Opening unavailable")
             self._opening_position = key
-        if self.analysis_tabs.currentIndex() == 1 and self._moves_position != key:
-            self.moves_log.setPlainText(played_moves(board) or "No moves tracked yet." if visible
-                                         else "Waiting for a confirmed board.")
-            self._moves_position = key
+        moves_key = (key, self.editable_position)
+        if self.analysis_tabs.currentIndex() == 1 and self._moves_position != moves_key:
+            if self.editable_position and board.move_stack:
+                moves = played_moves(board, lambda index, san: (
+                    f'<a style="color:#d8c1ff" href="move:{index}">{html.escape(san)}</a>'))
+                self.moves_log.setHtml(f'<pre style="font-family:inherit;line-height:150%">{moves}</pre>')
+            else:
+                self.moves_log.setPlainText((played_moves(board) or "No moves tracked yet.") if visible
+                                             else "Waiting for a confirmed board.")
+            self._moves_position = moves_key
 
     def window_screen(self):
         rectangle=self.frameGeometry()
@@ -365,8 +401,14 @@ class MainWindow(QMainWindow):
         self.settings_dialog.activateWindow()
 
     def arrange_position_controls(self):
-        self.fen_panel.setVisible(self.practice)
-        self.position_button.setVisible(self.practice)
+        editable = self.editable_position
+        self.fen_panel.setVisible(editable)
+        self.position_button.setVisible(editable)
+        self.local_turn_row.setVisible(editable)
+        self.review_button.setVisible(editable)
+        self.compact_moves.setVisible(self._compact and not editable)
+        for button in (self.previous_button, self.next_button, self.resume_button):
+            button.setVisible(self.source.currentIndex() == 1 and self.board_stack.currentIndex() == 0)
 
     def start_live(self, compact=False):
         if self.source.currentIndex() != 1:
@@ -584,11 +626,19 @@ class MainWindow(QMainWindow):
                 try:
                     board, self._turn_known = position_from_read(read,turn_override,previous)
                 except ValueError:
-                    # Three or more skipped plies cannot be reconstructed from
-                    # pixels alone. Re-anchor only with a stable move highlight.
-                    if self._stable_frames<3 or read.turn_hint is None:raise
+                    # Puzzle sequences can reuse the exact rectangle for a
+                    # different position, before any move is highlighted.
+                    if previous is None or self._stable_frames < 3:
+                        raise
+                    old_symbols = ordered_symbols(previous, read.white_bottom)
+                    changed_squares = sum(old != new for old, new in zip(old_symbols, read.symbols))
+                    replaced = changed_squares >= 8 and read.confidence.min() >= .8
+                    if read.turn_hint is None and not replaced:
+                        raise
                     board, self._turn_known = position_from_read(read,turn_override)
-                    if previous is not None:
+                    if replaced:
+                        self._candidate_continuing = False
+                    else:
                         board.castling_rights &= previous.castling_rights
                     self._turn_known=False
 
@@ -710,7 +760,7 @@ class MainWindow(QMainWindow):
         stop = self._button("Stop", self.stop)
         self.stop_button = stop
         stop.setObjectName("stop")
-        self.quick_scan_button = self._button("Scan now", self.scan_now)
+        self.quick_scan_button = self._button("Scan now", self.scan_or_open)
         layout.addWidget(toolbar)
         self.analysis_options_bar = QWidget()
         self.analysis_options_bar.setObjectName("analysisOptionsBar")
@@ -1034,6 +1084,10 @@ class MainWindow(QMainWindow):
         self.arrow_count.setValue(2)
         self.arrow_count.valueChanged.connect(self.visual_settings_changed)
         visual_form.addRow("Moves to draw",self.arrow_count)
+        self.overlap_arrow_button = ArrowColorButton(self.overlap_color, "Arrow overlap color")
+        self.overlap_arrow_button.setToolTip("Choose the color where two arrows overlap.")
+        self.overlap_arrow_button.color_changed.connect(self.change_overlap_color)
+        visual_form.addRow("Overlap color", self.overlap_arrow_button)
         display_layout.addLayout(visual_form)
         note=QLabel("Set move count in Engine. Arrows let clicks through.")
         note.setWordWrap(True)
@@ -1093,11 +1147,23 @@ class MainWindow(QMainWindow):
         self.opening_label.setWordWrap(True)
         self.opening_label.setStyleSheet("color:#d0bafa")
         mid.addWidget(self.opening_label)
+        self.local_turn_row = QWidget()
+        turn_layout = QHBoxLayout(self.local_turn_row)
+        turn_layout.setContentsMargins(0, 0, 0, 0)
+        turn_layout.addWidget(QLabel("Side to move"))
+        self.local_turn = QComboBox()
+        self.local_turn.setAccessibleName("Side to move on this board")
+        self.local_turn.addItems(["White", "Black"])
+        self.local_turn.setToolTip("Changing the side starts a new line from the displayed position.")
+        self.local_turn.currentIndexChanged.connect(self.set_local_turn)
+        turn_layout.addWidget(self.local_turn, 1)
+        mid.addWidget(self.local_turn_row)
         self.board_stack=QStackedWidget()
         self.eval_bar = EvalBar()
         self.board_view = BoardView()
         self.board_view.square_clicked.connect(self.practice_click)
         self.board_area=BoardArea(self.board_view,self.eval_bar)
+        self.board_area.setMinimumHeight(0)
         self.board_stack.addWidget(self.board_area)
         self.empty_panel=QWidget()
         empty=QVBoxLayout(self.empty_panel);empty.setContentsMargins(28,24,28,24)
@@ -1110,7 +1176,7 @@ class MainWindow(QMainWindow):
         self.empty_detail.setStyleSheet("font-size:16px;color:#c6bed9;")
         empty.addWidget(self.empty_title);empty.addSpacing(12);empty.addWidget(self.empty_detail)
         empty.addSpacing(16)
-        self.empty_scan_button=self._button("Scan now",self.scan_now,empty)
+        self.empty_scan_button=self._button("Scan now",self.scan_or_open,empty)
         empty.addStretch()
         self.board_stack.addWidget(self.empty_panel)
         mid.addWidget(self.board_stack,1)
@@ -1131,6 +1197,7 @@ class MainWindow(QMainWindow):
         self.next_button=self._button("Next", self.history_next, history)
         self.resume_button=self._button("Resume live", self.resume_live, history)
         self.compact_moves = self._button("Moves", self.open_moves, history)
+        self.review_button = self._button("Review game", lambda: self.open_game_review(), history)
         self.position_button = self._button("Position…", lambda: self.position_dialog.exec(), history)
         mid.addLayout(history)
         self.eval_label = QLabel("Evaluation —")
@@ -1182,6 +1249,8 @@ class MainWindow(QMainWindow):
         moves_layout.addWidget(self.moves_opening)
         self.moves_log = QTextBrowser()
         self.moves_log.setAccessibleName("Played moves")
+        self.moves_log.setOpenLinks(False)
+        self.moves_log.anchorClicked.connect(self.review_move_link)
         moves_layout.addWidget(self.moves_log, 1)
         self.analysis_tabs.addTab(moves_page, "Moves")
         self.settings_page = QWidget()
@@ -1236,7 +1305,6 @@ class MainWindow(QMainWindow):
         views.hide()
         layout.addWidget(views)
         layout.addWidget(self.workspace_stack, 1)
-        self.board_area.setMinimumHeight(330)
         self.update_history_controls()
         self.status_label = QLabel()
         self.status_label.setObjectName("status")
@@ -1260,9 +1328,13 @@ class MainWindow(QMainWindow):
     def practice(self):
         return self.source.currentIndex() == 0
 
+    @property
+    def editable_position(self):
+        return self.practice or (self.source.currentIndex() == 2 and self._screenshot_position is not None)
+
     def status(self, message):
         if not self.closing:
-            if getattr(getattr(self, 'permissions', None), 'blocked', False) and not self.practice:
+            if getattr(getattr(self, 'permissions', None), 'blocked', False) and self.source.currentIndex() == 1:
                 message = self.permissions.reason + ' permission required · screen reading is paused'
             self.status_label.setText(message)
 
@@ -1353,6 +1425,7 @@ class MainWindow(QMainWindow):
                 if read and tracker and confirmed and getattr(read,'source_id','').startswith('browser:'):
                     hints[read.source_id]={'fen':getattr(read,'visible_fen',None) or getattr(read,'exact_fen',None) or tracker.board.fen(),
                         'arrows':[{'move':a['move'].uci(),'color':a['color'],'engine':a.get('engine'),'dashed':a.get('dashed',False)} for a in arrows] if self.overlay_enabled.isChecked() else [],
+                        'overlap_color':self.overlap_color,
                         'marks':[dict(m,square=chess.square_name(m['square'])) for m in marks] if self.overlay_enabled.isChecked() else [],
                         'evaluation':self.evaluations.score(tracker.board,result) if self.browser_eval_enabled.isChecked() else None}
         self.browser_reader.publish(hints, evaluation_visible=(self._monitoring and not self._reviewing and not self.game_ended and self.browser_eval_enabled.isChecked()))
@@ -1396,14 +1469,20 @@ class MainWindow(QMainWindow):
     def show_empty_board(self,title="Looking for a chessboard"):
         self.board_stack.setCurrentIndex(1)
         self.board_view.hide();self.eval_bar.hide()
-        self.empty_title.setText(title)
-        self.region_label.setText("No board detected on "+self.monitor_description())
-        self.empty_detail.setText(f"Watching {self.monitor_description()}. Open a complete 2D chessboard there, or choose another monitor in Board settings. The board and evaluation will appear after a clear read.")
-        self.position_label.setText("Live screen · no confirmed board")
+        screenshot = self.source.currentIndex() == 2
+        self.empty_scan_button.setText("Open screenshot…" if screenshot else "Scan now")
+        if screenshot:
+            self.empty_title.setText("Open a board screenshot")
+            self.empty_detail.setText("Choose a clear image of the full chessboard to make an editable copy.")
+            self.position_label.setText("Screenshot · no imported board")
+        else:
+            self.empty_title.setText(title)
+            self.region_label.setText("No board detected on "+self.monitor_description())
+            self.empty_detail.setText(f"Watching {self.monitor_description()}. Open a complete 2D chessboard there, or choose another monitor in Board settings. The board and evaluation will appear after a clear read.")
+            self.position_label.setText("Live screen · no confirmed board")
         self.simple_label.clear();self.reply_label.clear()
         for widget in (self.simple_label,self.reply_label,self.eval_label,self.previous_button,self.next_button,self.resume_button):widget.hide()
-        self.fen_panel.hide()
-        self.position_button.hide()
+        self.arrange_position_controls()
         self.eval_label.setText("Evaluation — waiting for a board")
         self.player_label.setText("Watching: "+self.monitor_description())
         self.player_label.hide()
@@ -1505,6 +1584,7 @@ class MainWindow(QMainWindow):
         values = {name: getattr(self, name).value() for name in ("seconds", "depth", "multipv", "threads", "hash_mb", "interval")}
         values['extra_engines']=self.extra_engines.profiles
         values['primary_arrow_color']=self.extra_engines.primary_color
+        values['overlap_arrow_color'] = self.overlap_color
         values['screen_eval_geometry']=list(self.screen_eval.user_rect) if self.screen_eval.user_rect else None
         if getattr(self,'autoplay_test',None):values['autoplay_delay_ms']=self.autoplay_test.delay.value()
         values.update(source_index=self.source.currentIndex(),orientation_index=self.orientation.currentIndex(),turn_index=self.turn.currentIndex(),always_top=self.always_top.isChecked(),browser_reader_enabled=self.browser_reader_button.isChecked(),native_reader_enabled=self.native_reader_button.isChecked(),phone_port=self.phone_port.value(),phone_auto=self.phone_auto.isChecked(),compact=self._compact,window_geometry=list(self.geometry().getRect()),monitor_key=self.monitor.currentData(),
@@ -1579,6 +1659,7 @@ class MainWindow(QMainWindow):
             self.start_live()
 
     def source_changed(self, *_):
+        resume_auto = self.live_button.isChecked()
         self.stop()
         self._reviewing = False
         self._history.clear()
@@ -1589,14 +1670,23 @@ class MainWindow(QMainWindow):
         self.stable_count = 0
         self.invalidate(release_move=True)
         self._last_read = None
-        if self.source.currentIndex()==1:self.show_empty_board()
-        else:self.show_board_surface()
         self._position_locked = False
         self._turn_known = False
-        if self._ready and self.source.currentIndex() == 1:
-            self.start_live(compact=True)
+        if self.source.currentIndex() == 1:
+            self.show_empty_board()
+            if self._ready:
+                self.start_live(compact=True)
+        elif self.editable_position:
+            board = self.tracker.board
+            if not self.practice:
+                board, self._white_bottom = self._screenshot_position
+            self.set_position(board)
+            if resume_auto:
+                self.live_button.setChecked(True)
+            self.status("Practice board ready." if self.practice else "Screenshot board ready.")
         else:
-            self.status("Practice board ready." if self.practice else "Open a board screenshot.")
+            self.show_empty_board()
+            self.status("Open a board screenshot.")
 
     def orientation_changed(self, *_):
         self.stop()
@@ -1611,7 +1701,13 @@ class MainWindow(QMainWindow):
         if not enabled:self.clicker.cancel()
 
     def select_board(self, detect=True):
-        self.scan_now()
+        self.scan_or_open()
+
+    def scan_or_open(self):
+        if self.source.currentIndex() == 2:
+            self.open_image()
+        else:
+            self.scan_now()
 
     def scan_now(self, checked=False):
         self.game_ended=False;self._ended_placement=None
@@ -1658,19 +1754,27 @@ class MainWindow(QMainWindow):
         if image is None:
             self.status("Could not read that image.")
             return
-        self.source.setCurrentIndex(2)
         self.status("Finding the chessboard in the screenshot…")
         QApplication.processEvents()
         read=self._recognizer.scan(image)
         if read is None:
             self.status("No complete supported chessboard found. Try a clear image of the whole board.")
             return
+        try:
+            board, _ = position_from_read(read)
+        except ValueError as error:
+            self.status(str(error))
+            return
         self.snapshot=read.image.copy()
-        self._white_bottom=read.white_bottom
-        self._last_read=read
-        board,_=position_from_read(read)
-        self.set_position(board)
+        self._screenshot_position = board.copy(), read.white_bottom
+        if self.source.currentIndex() == 2:
+            self._white_bottom = read.white_bottom
+            self.set_position(board)
+            self.source_controls()
+        else:
+            self.source.setCurrentIndex(2)
         self.preview(self.snapshot)
+        self.live_button.setChecked(True)
         self.suggest()
 
     def screen(self):
@@ -1745,8 +1849,8 @@ class MainWindow(QMainWindow):
             self.scan_now()
             return
         try:
-            if self.practice:
-                self.status("Practice board is already synchronized.")
+            if self.editable_position:
+                self.status("The editable board is already synchronized.")
                 return
             self.sync()
             self.status("Position synchronized. Check the mirrored board before suggesting moves.")
@@ -1807,7 +1911,10 @@ class MainWindow(QMainWindow):
         self.refresh_board()
 
     def refresh_board(self):
-        if self.practice or self.source.currentIndex()==2 or self._reviewing or self._screen_confirmed:self.show_board_surface()
+        if self.source.currentIndex() == 2 and not self.editable_position:
+            self.show_empty_board()
+            return
+        if self.editable_position or self._reviewing or self._screen_confirmed:self.show_board_surface()
         else:self.show_empty_board()
         board = self.tracker.board
         self.board_view.set_position(board, self.white_bottom)
@@ -1815,6 +1922,8 @@ class MainWindow(QMainWindow):
         self.eval_bar.white_bottom = self.white_bottom
         self.eval_bar.update()
         self.fen.setText(board.fen())
+        with QSignalBlocker(self.local_turn):
+            self.local_turn.setCurrentIndex(0 if board.turn else 1)
         self.player_label.setText(f"{'White' if self.white_bottom else 'Black'} at bottom")
         side = "White" if board.turn else "Black"
         outcome = board.outcome()
@@ -1832,6 +1941,24 @@ class MainWindow(QMainWindow):
         self.position_label.setText(text)
         if self.source.currentIndex() == 1 and not self._turn_known:
             self.position_label.setText(text + " · turn inferred")
+
+    def set_local_turn(self, index):
+        if not self.editable_position:
+            return
+        old = self.tracker.board
+        turn = index == 0
+        if old.turn == turn:
+            return
+        board = old.copy(stack=False)
+        board.turn = turn
+        board.ep_square = None
+        if not board.is_valid():
+            with QSignalBlocker(self.local_turn):
+                self.local_turn.setCurrentIndex(0 if old.turn else 1)
+            self.status("That side cannot move first from this position. Check which king is in check.")
+            return
+        self.set_position(board)
+        self.status(f"{'White' if turn else 'Black'} to move · new line from this position")
 
     def load_fen(self):
         try:
@@ -1921,18 +2048,17 @@ class MainWindow(QMainWindow):
             self.suggest(from_poll=True)
 
     def undo(self):
-        if not self.practice:
+        if not self.editable_position:
             self.history_previous()
             return
         if self.tracker.board.move_stack:
-            self.stop()
             self.tracker.board.pop()
             self.invalidate()
             self.refresh_board()
-            self.status("Practice move undone.")
+            self.status("Move undone.")
 
     def practice_click(self, square):
-        if not self.practice:
+        if not self.editable_position:
             return
         board = self.tracker.board
         source = self.board_view.selected
@@ -1946,7 +2072,7 @@ class MainWindow(QMainWindow):
                 self.board_view.selected = None
                 self.invalidate()
                 self.refresh_board()
-                self.status("Practice move played.")
+                self.status("Move played.")
                 return
         piece = board.piece_at(square)
         self.board_view.selected = square if piece and piece.color == board.turn else None
@@ -1970,8 +2096,9 @@ class MainWindow(QMainWindow):
                 if not self._screen_confirmed or self._last_read is None:
                     self.start_live(compact=True)
                     return
-            elif not self.practice:
-                self.sync(stable=from_poll)
+            elif not self.editable_position:
+                self.status("Open a board screenshot before requesting analysis.")
+                return
             board = self.tracker.board.copy()
             if board.is_game_over():
                 if self.practice and self.autoplay_test.active:
@@ -2138,6 +2265,12 @@ class MainWindow(QMainWindow):
     def visible_rank(self,index):
         return self.rank_best.isChecked() if index==1 else self.rank_second.isChecked() if index==2 else self.rank_others.isChecked()
 
+    def change_overlap_color(self, color):
+        self.overlap_color = color
+        self.update_visuals()
+        self.multi.repaint()
+        self.queue_autosave()
+
     def visual_settings_changed(self,*_):
         if self._applying_preset:return
         self.mark_custom_preset()
@@ -2185,9 +2318,12 @@ class MainWindow(QMainWindow):
             lead=move_result["lines"][0]
             if other_allowed and self.show_reply.isChecked() and self.rank_best.isChecked() and lead.get("reply_move"):
                 arrows.append({"move":chess.Move.from_uci(lead["reply_move"]),"color":"#53e2e4","label":"B↳" if side=="W" else "W↳","reply":True,"dashed":self.dashed_reply.isChecked()})
-        if (self.practice or self._screen_confirmed) and not self.game_ended and self.allowed_colors()[0]:
+        if (self.editable_position or self._screen_confirmed) and not self.game_ended and self.allowed_colors()[0]:
             arrows.extend(self.extra_engines.arrows(self.tracker.board))
+        if self.editable_position and not self.overlay_enabled.isChecked():
+            arrows.clear()
         self.board_view.arrows=arrows
+        self.board_view.overlap_color = self.overlay.overlap_color = self.overlap_color
         marks,messages=self.threat_marks(self.tracker.board,self.white_bottom)
         self.board_view.marks=marks
         self.board_view.setToolTip('\n'.join(messages) if messages else 'Recognized chess position')
@@ -2217,22 +2353,23 @@ class MainWindow(QMainWindow):
         if not enabled:
             self.stop()
             return
-        if self.source.currentIndex() == 2:
+        if self.source.currentIndex() == 2 and not self.editable_position:
             self.live_button.setChecked(False)
-            self.status("Screenshots are static. Use Suggest best move once.")
+            self.status("Open a board screenshot before enabling Auto suggest.")
             return
         if self.source.currentIndex() == 1:
             if self._reviewing:self.resume_live()
             else:self.start_live()
             return
         self.last_requested_fen = None
-        self.status("Auto suggest enabled. Screen boards must stay fully visible.")
+        self.status("Auto suggest enabled. Analysis follows moves on this board.")
 
     def play_best(self, checked=False, _verified_symbols=None):
-        if not self.practice:
+        if not self.editable_position:
             self.status("Live mode provides suggestions. Play moves yourself on the target board.")
             return
-        if QApplication.activeModalWidget():return
+        if QApplication.activeModalWidget() not in (None, self.position_dialog):
+            return
         try:
             board=self.tracker.board
             selected=self.result
@@ -2241,7 +2378,7 @@ class MainWindow(QMainWindow):
             board.push(move)
             self.invalidate()
             self.refresh_board()
-            self.status("Engine move played on the practice board.")
+            self.status("Engine move played on this board.")
         except Exception as exc:
             self.status(str(exc))
 
@@ -2267,8 +2404,8 @@ class MainWindow(QMainWindow):
             self.request_scan()
             return
         try:
-            if not self.practice:
-                self.sync(stable=True)
+            if not self.editable_position:
+                return
             if self.pending_until:
                 return
             board = self.tracker.board
@@ -2533,8 +2670,9 @@ class MainWindow(QMainWindow):
         self.screen_setup.setVisible(self.source.currentIndex()==1)
         self.monitor.setEnabled(self.source.currentIndex()==1)
         self.open_screenshot_button.setVisible(self.source.currentIndex()==2)
+        self.quick_scan_button.setText("Open screenshot…" if self.source.currentIndex() == 2 else "Scan now")
         self.turn.setEnabled(self.source.currentIndex()==1);self.position_turn_form.setRowVisible(self.turn,self.source.currentIndex()==1)
-        for field in (self.move_button,):field.setVisible(self.practice)
+        self.move_button.setVisible(self.editable_position)
         self.arrange_position_controls()
         self.update_history_controls()
 
@@ -2585,7 +2723,7 @@ class MainWindow(QMainWindow):
         self.status(f"Reviewing position {index+1}/{len(self._history)} · live paused · Resume live to continue")
 
     def history_previous(self):
-        if self.practice:
+        if self.editable_position:
             self.undo()
             return
         self.review_position(self._history_index-1)
@@ -2623,6 +2761,8 @@ class MainWindow(QMainWindow):
         self.timer.stop()
         if hasattr(self,'autosave_timer'):self.autosave_timer.stop()
         self.settings_dialog.close()
+        if self.game_review is not None:
+            self.game_review.close()
         if hasattr(self,'comparison'):self.comparison.close()
         if hasattr(self,'help_dialog'):self.help_dialog.close()
         if hasattr(self,'update_dialog'):self.update_dialog.close()

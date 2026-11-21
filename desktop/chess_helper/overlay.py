@@ -6,51 +6,76 @@ import os
 import sys
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPolygonF
+from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPainterPathStroker, QPen, QPolygonF
 from PySide6.QtWidgets import QWidget
 
 from .core import square_to_cell
 
 
-def paint_arrows(painter, rect, white_bottom, arrows):
-    cell = rect.width()/8
+DEFAULT_OVERLAP_COLOR = "#a855f7"
+
+
+def paint_arrows(painter, rect, white_bottom, arrows, overlap_color=DEFAULT_OVERLAP_COLOR):
+    if not arrows or rect.isEmpty():
+        return
+    cell = rect.width() / 8
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-    # A predicted reply can share a destination or path with the current move
-    # (for example, promoting and then being captured on that square).
+    shapes = []
+    labels = []
+    overlaps = QPainterPath()
     for arrow in sorted(arrows, key=lambda candidate: not candidate.get("reply", False)):
         move = arrow["move"]
+        projected = arrow.get("points") or {}
+
         def point(square):
-            if arrow.get('points') and square in arrow['points']:
-                x,y=arrow['points'][square];return QPointF(rect.x()+x*rect.width(),rect.y()+y*rect.height())
-            row,col=square_to_cell(square,white_bottom)
-            return QPointF(rect.x()+(col+.5)*cell,rect.y()+(row+.5)*cell)
-        start,end=point(move.from_square),point(move.to_square)
-        color=QColor(arrow["color"])
+            if square in projected:
+                x, y = projected[square]
+                return QPointF(rect.x() + x * rect.width(), rect.y() + y * rect.height())
+            row, col = square_to_cell(square, white_bottom)
+            return QPointF(rect.x() + (col + .5) * cell, rect.y() + (row + .5) * cell)
+
+        start, end = point(move.from_square), point(move.to_square)
+        color = QColor(arrow["color"])
         color.setAlpha(215)
-        pen=QPen(color,max(3,cell*.095),Qt.PenStyle.DashLine if arrow.get("dashed",False) else Qt.PenStyle.SolidLine,Qt.PenCapStyle.RoundCap)
-        painter.setPen(pen)
-        dx,dy=abs(end.x()-start.x())/cell,abs(end.y()-start.y())/cell
-        tail=start
-        if not arrow.get('points') and (round(dx),round(dy)) in ((1,2),(2,1)):
-            tail=QPointF(end.x(),start.y()) if dx>dy else QPointF(start.x(),end.y())
-            painter.drawLine(start,tail)
-        painter.drawLine(tail,end)
-        angle=math.atan2(end.y()-tail.y(),end.x()-tail.x())
-        length=cell*.29
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(color)
-        painter.drawPolygon(QPolygonF([end,
-            QPointF(end.x()-length*math.cos(angle-.52),end.y()-length*math.sin(angle-.52)),
-            QPointF(end.x()-length*math.cos(angle+.52),end.y()-length*math.sin(angle+.52))]))
+        style = Qt.PenStyle.DashLine if arrow.get("dashed") else Qt.PenStyle.SolidLine
+        pen = QPen(color, max(3, cell * .095), style, Qt.PenCapStyle.RoundCap)
+        shaft = QPainterPath(start)
+        dx, dy = abs(end.x() - start.x()) / cell, abs(end.y() - start.y()) / cell
+        tail = start
+        if not projected and (round(dx), round(dy)) in ((1, 2), (2, 1)):
+            tail = QPointF(end.x(), start.y()) if dx > dy else QPointF(start.x(), end.y())
+            shaft.lineTo(tail)
+            shaft.moveTo(tail)
+        shaft.lineTo(end)
+
+        angle = math.atan2(end.y() - tail.y(), end.x() - tail.x())
+        length = cell * .29
+        head = QPainterPath()
+        head.addPolygon(QPolygonF([end,
+            QPointF(end.x() - length * math.cos(angle - .52), end.y() - length * math.sin(angle - .52)),
+            QPointF(end.x() - length * math.cos(angle + .52), end.y() - length * math.sin(angle + .52))]))
+        head.closeSubpath()
+        shape = QPainterPathStroker(pen).createStroke(shaft).united(head)
+        painter.fillPath(shape, color)
+        bounds = shape.boundingRect()
+        for other, other_bounds in shapes:
+            if bounds.intersects(other_bounds):
+                overlaps = overlaps.united(shape.intersected(other))
+        shapes.append((shape, bounds))
+
         if arrow.get("label"):
-            center=start*.28+end*.72
-            radius=max(9,cell*.16)
-            painter.setBrush(QColor("#152630"))
-            painter.drawEllipse(center,radius,radius)
-            painter.setPen(color.lighter(130))
-            painter.setFont(QFont("Arial",max(8,round(radius*.8)),QFont.Weight.Bold))
-            painter.drawText(QRectF(center.x()-radius,center.y()-radius,2*radius,2*radius),
-                             Qt.AlignmentFlag.AlignCenter,arrow["label"])
+            labels.append((arrow["label"], start * .28 + end * .72, color))
+
+    painter.fillPath(overlaps, QColor(overlap_color))
+    radius = max(9, cell * .16)
+    for label, center, color in labels:
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor("#152630"))
+        painter.drawEllipse(center, radius, radius)
+        painter.setPen(color.lighter(130))
+        painter.setFont(QFont("Arial", max(8, round(radius * .8)), QFont.Weight.Bold))
+        painter.drawText(QRectF(center.x() - radius, center.y() - radius, 2 * radius, 2 * radius),
+                         Qt.AlignmentFlag.AlignCenter, label)
 
 
 def paint_marks(painter, rect, white_bottom, marks):
@@ -90,6 +115,7 @@ class BoardOverlay(QWidget):
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.arrows=[]
         self.marks=[]
+        self.overlap_color = DEFAULT_OVERLAP_COLOR
         self.white_bottom=True
         self._native_panel=None
         self._native_mac=(sys.platform=='darwin' and not os.environ.get('BOARDLENS_TEST_MODE')
@@ -152,7 +178,8 @@ class BoardOverlay(QWidget):
                 from PySide6.QtGui import QGuiApplication
                 primary=QGuiApplication.primaryScreen()
                 self._mac_panel().update(geometry,screen.devicePixelRatio() if screen else 1,
-                                         white_bottom,arrows,primary.geometry().height(),self.marks)
+                                         white_bottom,arrows,primary.geometry().height(),self.marks,
+                                         self.overlap_color)
             else:
                 self.hide()
             return
@@ -175,4 +202,4 @@ class BoardOverlay(QWidget):
         painter.fillRect(self.rect(),Qt.GlobalColor.transparent)
         painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
         paint_marks(painter,QRectF(self.rect()),self.white_bottom,self.marks)
-        paint_arrows(painter,QRectF(self.rect()),self.white_bottom,self.arrows)
+        paint_arrows(painter, QRectF(self.rect()), self.white_bottom, self.arrows, self.overlap_color)

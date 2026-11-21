@@ -269,6 +269,7 @@ class MultiBoards(QObject):
         else:
             state.eval_overlay.hide()
         marks,messages=w.threat_marks(board,bottom);card.view.marks=marks;card.view.setToolTip("\n".join(messages));card.view.arrows=arrows;card.view.update();card.bar.update()
+        card.view.overlap_color = state.overlay.overlap_color = w.overlap_color
         if (arrows or marks) and w.overlay_enabled.isChecked() and w._monitoring and state.confirmed and not w._reviewing:
             if getattr(state.read,'desktop_rect',None):
                 from PySide6.QtCore import QRect
@@ -280,6 +281,7 @@ class MultiBoards(QObject):
     def update_primary(self):
         w=self.window;card=self.primary_card;card.title.setText('Board 1')
         card.state.setText(w.position_label.text());card.view.board=w.tracker.board.copy();card.view.white_bottom=w.white_bottom
+        card.view.overlap_color = w.overlap_color
         card.view.arrows=list(w.board_view.arrows);card.view.marks=list(w.board_view.marks);card.view.update()
         card.bar.cp,card.bar.mate=w.eval_bar.cp,w.eval_bar.mate;card.bar.white_share=w.eval_bar.white_share;card.bar.white_bottom=w.white_bottom;card.bar.update()
         card.move.setText(w.simple_label.text());card.score.setText(w.eval_label.text())
