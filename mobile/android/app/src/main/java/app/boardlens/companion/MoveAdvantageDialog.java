@@ -40,12 +40,15 @@ final class MoveAdvantageDialog implements AutoCloseable {
 
     void show(ChessPosition board) {
         if (dialog != null) return;
-        List<EngineCatalog.Entry> catalog = EngineCatalog.ALL.stream()
-                .filter(entry -> !entry.tiny() && !entry.policy())
-                .filter(entry -> entry.id().equals("stockfish") || EngineCatalog.ready(activity, entry.id()))
-                .toList();
+        List<EngineCatalog.Entry> catalog = new ArrayList<>();
         String savedScorer = preferences.getString("engine", "stockfish");
-        int selected = Math.max(0, catalog.stream().map(EngineCatalog.Entry::id).toList().indexOf(savedScorer));
+        int selected = 0;
+        for (EngineCatalog.Entry entry : EngineCatalog.ALL) {
+            if (entry.tiny() || entry.policy()) continue;
+            if (!entry.id().equals("stockfish") && !EngineCatalog.ready(activity, entry.id())) continue;
+            if (entry.id().equals(savedScorer)) selected = catalog.size();
+            catalog.add(entry);
+        }
         scorer = catalog.get(selected).id();
         PhoneSettings currentSettings = new PhoneSettings(activity);
         timeMs = preferences.getInt("time_ms", Math.round(currentSettings.evaluationSeconds() * 1000));
