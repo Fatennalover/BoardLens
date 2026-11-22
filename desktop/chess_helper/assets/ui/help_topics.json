@@ -903,7 +903,11 @@
     ],
     "controls": [
       "advantage_engine",
-      "advantage_count"
+      "advantage_count",
+      "advantage_mode",
+      "advantage_seconds",
+      "advantage_depth",
+      "advantage_gain_arrows"
     ]
   },
   {

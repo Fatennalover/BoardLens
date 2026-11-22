@@ -53,6 +53,8 @@ def test_gui_early_arrows_do_not_shorten_selected_engine_time(qt):
     window.hash_mb.setValue(32)
     settings=window.search_settings()
     assert (settings.seconds,settings.depth,settings.threads,settings.multipv,settings.hash_mb)==(.8,22,1,2,32)
+    # Measure search time independently of starting the UCI process.
+    window.engine_session.warm(window.engine_path.text())
     window.suggest();started=time.monotonic()
     while window.result is None and time.monotonic()-started<.65:
         qt.processEvents();time.sleep(.01)
