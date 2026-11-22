@@ -1,23 +1,54 @@
 """Qt-owned companion state and command bridge; no widget access from HTTP."""
 from __future__ import annotations
 import base64,math,time
+from html import escape
 from concurrent.futures import Future
 from copy import deepcopy
 import chess,chess.svg,cv2,numpy as np
 from PySide6.QtCore import QObject,QTimer,Signal
 from PySide6.QtWidgets import QApplication
+from .core import evaluation_text, square_to_cell
 from .phone_server import PhoneServer,local_addresses
 from .recognition import position_from_read
 from .engine_config import configuration
 from . import __version__, engine_library, engine_profiles
 from .openings import opening_name, played_moves
 
-NUMBERS={'advantage_count':'Moves to compare (0 off)','prediction_plies':'Prediction length (plies)','prediction_seconds':'Reply time budget (seconds)','eval_seconds':'Evaluation think time','eval_depth':'Evaluation depth cap','eval_human_elo':'Evaluation human rating','seconds':'Think time (seconds)','depth':'Search depth','multipv':'Candidate moves','threads':'CPU threads per board','hash_mb':'Hash memory (MB)','arrow_count':'Arrow candidates','engine_skill':'Stockfish skill (0–20)','engine_elo':'Stockfish Elo','human_elo':'Maia target human rating'}
-BOOLEANS={'browser_eval_enabled':'Browser evaluation','screen_eval_enabled':'Screen evaluation','predict_continuations':'Predict opponent and my next move','only_my_color':'Only my color','stick_to_move':'Stick to one move','overlay_enabled':'Computer screen arrows','arrow_labels':'Arrow rank labels','show_white':'White suggestions','show_black':'Black suggestions','show_reply':'Opponent best reply','rank_best':'Show #1','rank_second':'Show #2','rank_others':'Show #3 and later','early_suggestions':'Show moves while thinking','global_keys':'Global keyboard shortcuts','always_top':'Desktop stays on top','steady_arrows':'Steady arrows · keep calculating','dashed_reply':'Dashed opponent reply arrow (desktop)'}
-ENUMS={'advantage_engine':'Scoring engine','eval_engine':'Evaluation engine','mode':'Engine limit','source':'Board source','orientation':'Board orientation','turn':'Primary board turn','monitor':'Monitor to scan','engine_kind':'Analysis engine · choose manually','strength_mode':'Stockfish strength mode','playing_style':'Playing style','compare_a':'Compare engine A','compare_b':'Compare engine B','compare_c':'Compare engine C'}
+NUMBERS={'advantage_seconds':'Scoring time (seconds)','advantage_depth':'Scoring depth','advantage_count':'Moves to compare (0 off)','prediction_plies':'Prediction length (plies)','prediction_seconds':'Reply time budget (seconds)','eval_seconds':'Evaluation think time','eval_depth':'Evaluation depth cap','eval_human_elo':'Evaluation human rating','seconds':'Think time (seconds)','depth':'Search depth','multipv':'Recommendation arrows','threads':'CPU threads per board','hash_mb':'Hash memory (MB)','arrow_count':'Arrow candidates','engine_skill':'Stockfish skill (0–20)','engine_elo':'Stockfish Elo','human_elo':'Maia target human rating'}
+BOOLEANS={'advantage_gain_arrows':'Gain arrows','browser_eval_enabled':'Browser evaluation','screen_eval_enabled':'Screen evaluation','predict_continuations':'Predict opponent and my next move','only_my_color':'Only my color','stick_to_move':'Stick to one move','overlay_enabled':'Computer screen arrows','arrow_labels':'Arrow rank labels','show_white':'White suggestions','show_black':'Black suggestions','show_reply':'Opponent best reply','rank_best':'Show #1','rank_second':'Show #2','rank_others':'Show #3 and later','early_suggestions':'Show moves while thinking','global_keys':'Global keyboard shortcuts','always_top':'Desktop stays on top','steady_arrows':'Steady arrows · keep calculating','dashed_reply':'Dashed opponent reply arrow (desktop)'}
+ENUMS={'advantage_mode':'Scoring search limit','advantage_engine':'Scoring engine','eval_engine':'Evaluation engine','mode':'Engine limit','source':'Board source','orientation':'Board orientation','turn':'Primary board turn','monitor':'Monitor to scan','engine_kind':'Analysis engine · choose manually','strength_mode':'Stockfish strength mode','playing_style':'Playing style','compare_a':'Compare engine A','compare_b':'Compare engine B','compare_c':'Compare engine C'}
 ENUMS.update(source='Read from',turn='Side to move',monitor='Display to read')
 BOOLEANS.update(auto_updates='Automatic desktop updates',threats_enabled='Threat highlights',threat_attacks='Attacked squares',threat_mates='Mate-in-one targets',lock_target='Lock target board')
 PRESET_COMMANDS={'apply_preset','save_preset','delete_preset'}
+
+
+def gain_svg(gains, bottom):
+    """Draw the same outlined gains on the portable SVG board."""
+    def point(square):
+        row, col = square_to_cell(square, bottom)
+        return 15 + (col + .5) * 45, 15 + (row + .5) * 45
+
+    paths, badges = [], []
+    for gain in gains:
+        move = chess.Move.from_uci(gain['move'])
+        x, y = point(move.from_square)
+        tx, ty = point(move.to_square)
+        length = math.hypot(tx - x, ty - y)
+        dx, dy = (tx - x) / length, (ty - y) / length
+        nx, ny = tx - 10 * dx, ty - 10 * dy
+        shape = (f"M{x} {y}L{nx} {ny} M{nx-6*dy} {ny+6*dx}"
+                 f"L{tx} {ty}L{nx+6*dy} {ny-6*dx}")
+        color, label = escape(gain['color']), escape(gain['label'])
+        dark = '#1a1527'
+        for ink, width in ((dark, 4), (color, 1.7)):
+            paths.append(f'<path d="{shape}" fill="none" stroke="{ink}" stroke-width="{width}" stroke-linecap="round"/>')
+        cx, cy = (x + tx) / 2, (y + ty) / 2
+        width = max(28, len(label) * 5 + 9)
+        badges.append(f'<rect x="{cx-width/2}" y="{cy-7}" width="{width}" height="14" '
+                      f'rx="4" fill="{dark}" stroke="{color}"/><text x="{cx}" y="{cy+3.2}" '
+                      f'text-anchor="middle" font-family="system-ui" font-size="10" font-weight="700" '
+                      f'fill="#f8f4ff">{label}</text>')
+    return ''.join(paths + badges)
 
 
 class PhoneCompanion(QObject):
@@ -59,8 +90,8 @@ class PhoneCompanion(QObject):
             values[name]=getattr(w,name).isChecked();schema.append({'key':name,'label':label,'type':'boolean','enabled':getattr(w,name).isEnabled()})
         for name,label in ENUMS.items():
             field=getattr(w,name)
-            value=field.currentData() if name=='monitor' else field.currentText() if name=='mode' else field.currentIndex()
-            options=[{'value':field.itemData(i) if name=='monitor' else field.itemText(i) if name=='mode' else i,'label':field.itemText(i)} for i in range(field.count())]
+            value=field.currentData() if name=='monitor' else field.currentText() if name in ('mode','advantage_mode') else field.currentIndex()
+            options=[{'value':field.itemData(i) if name=='monitor' else field.itemText(i) if name in ('mode','advantage_mode') else i,'label':field.itemText(i)} for i in range(field.count())]
             if name in ('engine_kind','eval_engine'):
                 for i,option in enumerate(options):
                     entry=engine_library.ENTRIES[i if name=='engine_kind' else field.itemData(i)]
@@ -78,11 +109,16 @@ class PhoneCompanion(QObject):
 
     def board(self,identity,title,board,bottom,result,displayed,arrows,known=True):
         marks,messages=self.window.threat_marks(board,bottom)
-        key=(identity,board.fen(),bottom,tuple((a['move'].uci(),a['color']) for a in arrows),tuple((m['square'],m['color']) for m in marks))
+        gains = self.window.move_advantage.marks(board) if identity == 'primary' else []
+        key=(identity,board.fen(),bottom,tuple((a['move'].uci(),a['color']) for a in arrows),tuple((m['square'],m['color']) for m in marks),
+             tuple((g['move'],g['label'],g['color']) for g in gains))
         if key not in self.svg_cache:
             if len(self.svg_cache)>18:self.svg_cache.clear()
-            self.svg_cache[key]=chess.svg.board(board,orientation=bottom,size=600,
-                arrows=[chess.svg.Arrow(a['move'].from_square,a['move'].to_square,color=a['color']) for a in arrows],fill={m['square']:m['color']+'66' for m in marks})
+            svg = chess.svg.board(board, orientation=bottom, size=600,
+                arrows=[chess.svg.Arrow(a['move'].from_square, a['move'].to_square,
+                                       color=a['color']) for a in arrows],
+                fill={m['square']:m['color']+'44' for m in marks if m['kind'] != 'attack'})
+            self.svg_cache[key] = svg[:-6] + gain_svg(gains, bottom) + '</svg>'
         lead=self.window.evaluations.score(board,result)
         w=self.window;current,other=(board.turn==bottom,False) if w.only_my_color.isChecked() else ((w.show_white.isChecked(),w.show_black.isChecked()) if board.turn else (w.show_black.isChecked(),w.show_white.isChecked()))
         lines=[]
@@ -108,6 +144,7 @@ class PhoneCompanion(QObject):
                 'played_moves':cached[1],'opening':cached[2],'turn':'White' if board.turn else 'Black',
                 'your_color':'White' if bottom else 'Black','turn_known':known,'lines':lines,'cp':lead['cp'] if lead else None,
                 'mate':lead.get('mate'),'white_share':lead.get('white_share'),
+                'bar_score':evaluation_text(lead.get('cp'), lead.get('mate'), lead.get('white_share'), white_bottom=bottom),
                 'score':lead['score'] if lead else '—','advantage':lead['advantage'] if lead else 'Waiting for analysis',
                 'thinking':bool(result and result.get('provisional')),'locked':w.stick_to_move.isChecked(),
                 'evaluation_kind':lead.get('kind',''),'evaluation_engine':lead.get('provider',''),'move_engine':result.get('engine','') if result else '', 'recommendation_evaluation_kind':result.get('evaluation_kind','') if result else '',
@@ -240,7 +277,7 @@ class PhoneCompanion(QObject):
                 validated.append((getattr(w,key),'boolean',value))
             elif key in ENUMS:
                 field=getattr(w,key)
-                index=field.findData(value) if key=='monitor' else field.findText(value) if key=='mode' else value
+                index=field.findData(value) if key=='monitor' else field.findText(value) if key in ('mode','advantage_mode') else value
                 if not isinstance(index,int) or not 0<=index<field.count():raise ValueError(f'Invalid choice for {key}.')
                 if key == 'advantage_engine' and field.view().isRowHidden(index) and index != field.currentIndex():
                     raise ValueError('Install this scoring engine on the desktop first.')

@@ -1,5 +1,5 @@
 {
- "manifest_version":3,"name":"BoardLens Browser Reader","version":"3.5.0",
+ "manifest_version":3,"name":"BoardLens Browser Reader","version":"3.5.1",
  "description":"Connect to BoardLens for board reading and on-page coaching on Chess.com and Lichess.",
  "permissions":["storage"],"host_permissions":["http://127.0.0.1:8788/*"],
  "background":{"service_worker":"background.js"},"action":{"default_popup":"popup.html"},

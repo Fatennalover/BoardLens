@@ -61,9 +61,9 @@ class PassivePanel:
         marks=marks or []
         signature = (geometry.getRect(), scale, white_bottom, overlap_color,
                      tuple((a['move'].uci(), a['color'], a.get('label'), a.get('reply'),a.get('dashed'),tuple(sorted((a.get('points') or {}).items()))) for a in arrows),
-                     tuple((m['square'],m['color'],m['kind'],tuple(sorted((m.get('points') or {}).items()))) for m in marks))
+                     tuple((m['square'],m['color'],m['kind'],m.get('move'),m.get('label'),tuple(sorted((m.get('points') or {}).items()))) for m in marks))
         if signature != self.signature:
-            from .overlay import paint_arrows,paint_marks
+            from .overlay import paint_arrows, paint_marks, paint_gain_arrows
             width, height = geometry.width(), geometry.height()
             image = QImage(round(width*scale), round(height*scale), QImage.Format.Format_ARGB32_Premultiplied)
             image.setDevicePixelRatio(scale)
@@ -71,6 +71,7 @@ class PassivePanel:
             painter = QPainter(image)
             paint_marks(painter,QRectF(0,0,width,height),white_bottom,marks)
             paint_arrows(painter, QRectF(0, 0, width, height), white_bottom, arrows, overlap_color)
+            paint_gain_arrows(painter, QRectF(0, 0, width, height), white_bottom, marks)
             painter.end()
             data = QByteArray()
             buffer = QBuffer(data)

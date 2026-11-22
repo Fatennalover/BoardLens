@@ -133,3 +133,25 @@ def test_move_preset_updates_arrow_count_and_visibility(qt):
         values,schema=w.phone.schema()
         assert not {'move_delay','inaccuracy_chance','inaccuracy_loss','practice_strength','side'}&set(values)
     finally:w.close()
+
+
+def test_companion_arrow_count_and_positive_gain_share_current_board(qt):
+    w = MainWindow()
+    try:
+        w.source.setCurrentIndex(0)
+        w.phone.apply_settings({"multipv": 4, "advantage_mode": "Time", "advantage_seconds": .2,
+                                "advantage_gain_arrows": True})
+        assert w.arrow_count.value() == 4 and w.rank_others.isChecked()
+        board = w.tracker.board
+        w.move_advantage.result = {"fen": board.fen(), "rows": [
+            {"move": "e4", "uci": "e2e4", "score": "+0.10", "change": "+0.08"},
+            {"move": "d4", "uci": "d2d4", "score": "+0.01", "change": "-0.01"},
+        ]}
+        svg = w.phone.snapshot()["boards"][0]["svg"]
+        assert ">+0.08</text>" in svg and ">-0.01</text>" not in svg
+        next_board = board.copy()
+        next_board.push_uci("e2e4")
+        w.set_position(next_board)
+        assert ">+0.08</text>" not in w.phone.snapshot()["boards"][0]["svg"]
+    finally:
+        w.close()

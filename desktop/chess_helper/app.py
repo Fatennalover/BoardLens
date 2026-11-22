@@ -23,7 +23,7 @@ from .toggle import ToggleButton as QCheckBox
 from .capture import BoardRegion, bgr_pixmap, capture, screen_key
 from .controls import Hotkeys
 from .core import (DEFAULT_KEYS, PositionTracker, SearchSettings, board_from_symbols,
-                   can_send_move, data_dir, find_engine, load_settings, ordered_symbols,
+                   can_send_move, data_dir, evaluation_text, find_engine, load_settings, ordered_symbols,
                    save_settings, simple_move, validate_keys)
 from .engine import EngineJob, EngineSession
 from .live import LiveWorker
@@ -42,7 +42,7 @@ from .branding import BrandBanner, app_icon
 from .ui_controls import ResponsiveScrollArea
 from .studio import ArrowColorButton, WORKSPACE_STYLE
 from .openings import load_openings, opening_name, played_moves
-from .threats import presentation as threat_presentation
+from .threats import DEFAULT_COLORS, ThreatUpdates, presentation as threat_presentation
 
 
 SCREEN_REFRESH_MS = 45
@@ -148,6 +148,8 @@ class MainWindow(QMainWindow):
         self.analysis_presets=AnalysisPresets(self);self.target_lock=TargetLock()
         from .engine_overlays import EngineOverlays
         self.extra_engines=EngineOverlays(self)
+        self.threat_updates = ThreatUpdates(self)
+        self.threat_updates.changed.connect(self.threats_ready)
         self._build_ui()
         if sys.platform == 'darwin' and not os.environ.get('BOARDLENS_TEST_MODE'):
             from .permissions import Permissions
@@ -216,7 +218,7 @@ class MainWindow(QMainWindow):
         self.board_summary.setVisible(enabled)
         self.analysis_panel.setVisible(not enabled)
         self.compact_moves.setVisible(enabled and not self.editable_position)
-        self.full_analysis_button.setVisible(not enabled)
+        self.full_analysis_button.setVisible(not enabled and self.workspace_stack.currentIndex() in (0, 1))
         self.board_page_button.setVisible(not enabled)
         self.setMinimumSize(530 if enabled else 920, 720)
         self.splitter.setOrientation(Qt.Orientation.Vertical if enabled else Qt.Orientation.Horizontal)
@@ -239,14 +241,14 @@ class MainWindow(QMainWindow):
             grid.takeAt(0)
         if self._compact:
             first = (self.suggest_button, self.live_button, self.stop_button)
-            second = (self.quick_source, self.quick_scan_button)
+            second = (self.quick_source, self.quick_scan_button, self.quick_arrow_count)
             for column, pair in enumerate(zip(first, second)):
                 grid.setColumnStretch(column, 1)
                 for row, button in enumerate(pair):
                     grid.addWidget(button, row, column)
             grid.setColumnStretch(3, 0)
         else:
-            controls = (self.quick_source, None, self.suggest_button, self.live_button,
+            controls = (self.quick_source, self.quick_arrow_count, None, self.suggest_button, self.live_button,
                         self.stop_button, self.quick_scan_button)
             for column, button in enumerate(controls):
                 grid.setColumnStretch(column, int(button is None))
@@ -380,6 +382,7 @@ class MainWindow(QMainWindow):
         self.focus_button.setChecked(index == 0)
         self.board_page_button.setChecked(board_page)
         self.settings_button.setChecked(index == 3)
+        self.full_analysis_button.setVisible(board_page and not self._compact)
 
     def open_settings(self):
         if not self._compact:
@@ -389,6 +392,12 @@ class MainWindow(QMainWindow):
         self.settings_dialog.show()
         self.settings_dialog.raise_()
         self.settings_dialog.activateWindow()
+
+    def open_engine_settings(self):
+        self.settings_tabs.setCurrentWidget(self.engine_settings_page)
+        self.engine_settings_page.verticalScrollBar().setValue(0)
+        self.open_settings()
+        self.engine_kind.setFocus()
 
     def arrange_position_controls(self):
         editable = self.editable_position
@@ -731,8 +740,10 @@ class MainWindow(QMainWindow):
         top = QHBoxLayout()
         self.board_page_button = self._button("Board", lambda: self.workspace_stack.setCurrentIndex(0), top, True)
         self.settings_button = self._button("Settings", self.open_settings, top, True)
+        self.engine_settings_button = self._button("Engine settings", self.open_engine_settings, top)
         self.reader_setup_button = self._button("Browser setup", self.reader_setup, top)
         top.addStretch()
+        self.full_analysis_button = self._button("Full analysis", self.open_full_analysis, top)
         self.compact_button = self._button("Compact", self.user_toggle_compact, top, True)
         self._button("Help", self.help, top)
         layout.addLayout(top)
@@ -744,6 +755,15 @@ class MainWindow(QMainWindow):
         actions.setContentsMargins(12, 5, 12, 5)
         self.quick_source = QComboBox()
         self.quick_source.setAccessibleName("Board source")
+        self.quick_arrow_count = QSpinBox()
+        self.quick_arrow_count.setAccessibleName("Recommendation arrow count")
+        self.quick_arrow_count.setToolTip("Set how many color-coded recommendations to show.")
+        self.quick_arrow_count.setRange(1, 10)
+        self.quick_arrow_count.setSuffix(" arrows")
+        self.quick_arrow_count.setSpecialValueText("1 arrow")
+        self.quick_arrow_count.setMinimumWidth(114)
+        self.quick_arrow_count.setKeyboardTracking(False)
+        self.quick_arrow_count.valueChanged.connect(self.recommendation_preset)
         self.always_top = QCheckBox("Stay on top")
         self.always_top.toggled.connect(self.set_always_top)
         self.suggest_button = self._button("Suggest", self.suggest)
@@ -953,10 +973,15 @@ class MainWindow(QMainWindow):
         controls.addRow("Search depth", self.depth)
         self.multipv = QSpinBox()
         self.multipv.setRange(1, 10)
-        candidates=QHBoxLayout();self.preset_buttons=[]
-        for count in (1,2,3,5):
-            preset=self._button(str(count),lambda checked=False,n=count:self.recommendation_preset(n),candidates);preset.setFixedWidth(50);self.preset_buttons.append((count,preset))
         controls.addRow("Suggested moves", self.multipv)
+        candidates = QHBoxLayout()
+        self.preset_buttons = []
+        for count in range(1, 6):
+            preset = self._button(str(count), lambda checked=False, n=count: self.recommendation_preset(n), candidates)
+            preset.setAccessibleName(f"Show {count} suggested {'move' if count == 1 else 'moves'}")
+            preset.setFixedWidth(50)
+            self.preset_buttons.append((count, preset))
+        controls.addRow("Move presets", candidates)
         self.threads = QSpinBox()
         self.threads.setRange(1, max(1, os.cpu_count() or 2))
         self.threads.setToolTip("Threads per board. Each detected board has an independent Stockfish search.")
@@ -974,12 +999,10 @@ class MainWindow(QMainWindow):
         search_group = QGroupBox("Search and recommendations")
         search_layout = QVBoxLayout(search_group)
         search_layout.addLayout(controls)
-        search_layout.addWidget(QLabel("Recommended move presets"))
-        search_layout.addLayout(candidates)
-        eng.addWidget(search_group)
-        self.limit_label=QLabel()
+        self.limit_label = QLabel()
         self.limit_label.setWordWrap(True)
-        eng.addWidget(self.limit_label)
+        search_layout.addWidget(self.limit_label)
+        eng.insertWidget(2, search_group)
         self.seconds.valueChanged.connect(self.update_limit_label)
         self.depth.valueChanged.connect(self.update_limit_label)
         self.early_suggestions = QCheckBox("Show moves while thinking")
@@ -1025,7 +1048,8 @@ class MainWindow(QMainWindow):
         for field in (self.engine_skill,self.engine_elo,self.human_elo):field.valueChanged.connect(self.engine_configuration_changed)
         self.custom_engine.editingFinished.connect(self.engine_configuration_changed)
         eng.addStretch()
-        tabs.addTab(self._scroll(engine), "Engine")
+        self.engine_settings_page = self._scroll(engine)
+        tabs.addTab(self.engine_settings_page, "Engine")
         keys = QWidget()
         key_layout = QVBoxLayout(keys)
         self.global_keys = QCheckBox("Global shortcuts")
@@ -1055,6 +1079,8 @@ class MainWindow(QMainWindow):
         self.rank_best = QCheckBox("#1 · Best move")
         self.rank_second = QCheckBox("#2 · Alternative")
         self.rank_others = QCheckBox("#3 and more")
+        for field in (self.rank_second, self.rank_others):
+            field.setToolTip("Increase Suggested moves in Engine and Moves to draw here to use this filter.")
         for field in (self.overlay_enabled,self.show_white,self.show_black,self.show_reply,self.rank_best,self.rank_second,self.rank_others):
             field.setChecked(field is not self.rank_others)
             display_layout.addWidget(field)
@@ -1072,13 +1098,30 @@ class MainWindow(QMainWindow):
         self.overlap_arrow_button.color_changed.connect(self.change_overlap_color)
         visual_form.addRow("Overlap color", self.overlap_arrow_button)
         display_layout.addLayout(visual_form)
-        note=QLabel("Set move count in Engine. Arrows let clicks through.")
+        note=QLabel("The #2 and #3 filters become available when Suggested moves in Engine and Moves to draw are high enough. Arrows let clicks through.")
         note.setWordWrap(True)
         display_layout.addWidget(note)
         display_layout.addStretch()
         self.threats_enabled=QCheckBox('Threat highlights');self.threat_attacks=QCheckBox('Show attacked squares');self.threat_mates=QCheckBox('Show mate-in-one targets');self.threat_mates.setChecked(True)
         for field in (self.threats_enabled,self.threat_attacks,self.threat_mates):field.toggled.connect(self.visual_settings_changed);display_layout.insertWidget(0,field)
-        self.threat_note=QLabel('Red: material at risk · Purple: mate target');self.threat_note.setWordWrap(True);self.threat_note.setStyleSheet('font-size:13px;color:#c6bed9;');display_layout.insertWidget(3,self.threat_note)
+        self.threat_refresh = QSpinBox()
+        self.threat_refresh.setRange(50, 2000)
+        self.threat_refresh.setSuffix(" ms")
+        self.threat_refresh.setSingleStep(50)
+        self.threat_refresh.setValue(150)
+        self.threat_refresh.setToolTip("Minimum time between new threat checks.")
+        self.threat_refresh.valueChanged.connect(self.queue_autosave)
+        self.threat_colors = {}
+        color_form = QFormLayout()
+        color_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        color_form.addRow("Threat refresh interval", self.threat_refresh)
+        for key, label in (("attack", "Attacked square"), ("hanging", "Material at risk"),
+                           ("multiple", "Multiple attackers"), ("mate", "Mate in one")):
+            button = ArrowColorButton(DEFAULT_COLORS[key], label)
+            button.color_changed.connect(self.threat_style_changed)
+            self.threat_colors[key] = button
+            color_form.addRow(label, button)
+
         self.dashed_reply=QCheckBox("Dashed reply");self.dashed_reply.setChecked(False)
         self.dashed_reply.setToolTip("Cyan shows the opponent reply AFTER your suggested move. Turn this on for a dashed shaft.")
         self.dashed_reply.toggled.connect(self.visual_settings_changed);display_layout.insertWidget(0,self.dashed_reply)
@@ -1087,7 +1130,10 @@ class MainWindow(QMainWindow):
         for title,fields in move_sections:
             group=QGroupBox(title);column=QVBoxLayout(group);column.setSpacing(8)
             for field in fields:display_layout.removeWidget(field);column.addWidget(field)
+            if title == 'Threats':
+                column.addLayout(color_form)
             display_layout.insertWidget(0 if title=='Recommendations' else 1,group)
+        self.threats_enabled.toggled.connect(self.threats_toggled)
         self.threats_enabled.toggled.connect(lambda enabled:(self.threat_attacks.setEnabled(enabled),self.threat_mates.setEnabled(enabled)))
         self.threat_attacks.setEnabled(False);self.threat_mates.setEnabled(False)
         tabs.addTab(self._scroll(display),"Arrows")
@@ -1224,8 +1270,6 @@ class MainWindow(QMainWindow):
         self.lines.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
         self.analysis_tabs = QTabWidget()
         self.analysis_tabs.addTab(self.lines, "Analysis")
-        self.full_analysis_button = self._button("Full analysis", self.open_full_analysis)
-        self.analysis_tabs.setCornerWidget(self.full_analysis_button, Qt.Corner.TopRightCorner)
         moves_page = QWidget()
         moves_layout = QVBoxLayout(moves_page)
         self.moves_opening = QLabel()
@@ -1241,6 +1285,10 @@ class MainWindow(QMainWindow):
         self.move_advantage = MoveAdvantage(self)
         self.advantage_engine = self.move_advantage.engine
         self.advantage_count = self.move_advantage.count
+        self.advantage_mode = self.move_advantage.mode
+        self.advantage_seconds = self.move_advantage.seconds
+        self.advantage_depth = self.move_advantage.depth
+        self.advantage_gain_arrows = self.move_advantage.show_scores
         self.analysis_tabs.addTab(self.move_advantage, "Move advantage")
         self.settings_page = QWidget()
         settings_page_layout = QVBoxLayout(self.settings_page)
@@ -1419,7 +1467,7 @@ class MainWindow(QMainWindow):
                         may_show = board.turn == read.white_bottom
                     candidates = []
                     if may_show and result and result.get('fen') == board.fen():
-                        limit = 1 if self.stick_to_move.isChecked() else min(3, self.multipv.value())
+                        limit = 1 if self.stick_to_move.isChecked() else min(5, self.multipv.value())
                         candidates = [
                             {key: line.get(key, '') for key in ('san', 'score', 'description', 'insights', 'reply_simple')}
                             for rank, line in enumerate(result['lines'][:limit], 1) if self.visible_rank(rank)
@@ -1427,11 +1475,18 @@ class MainWindow(QMainWindow):
                     coach = {'side': side, 'engine': result.get('engine', '') if candidates else '',
                              'score': assessment.get('score', ''), 'evaluator': assessment.get('provider', ''),
                              'moves': candidates, 'waiting_for_turn': not may_show}
-                    hints[read.source_id]={'coach':coach,'fen':getattr(read,'visible_fen',None) or getattr(read,'exact_fen',None) or tracker.board.fen(),
+                    browser_evaluation = None
+                    if self.browser_eval_enabled.isChecked():
+                        browser_score = evaluation_text(assessment['cp'], assessment['mate'], assessment.get('white_share'),
+                                                        white_bottom=read.white_bottom)
+                        browser_evaluation = dict(assessment, score=browser_score,
+                                                  perspective='White' if read.white_bottom else 'Black')
+                    hints[read.source_id]={'coach':coach,'board_id':getattr(read,'game_identity',None),
+                        'fen':getattr(read,'visible_fen',None) or getattr(read,'exact_fen',None) or tracker.board.fen(),
                         'arrows':[{'move':a['move'].uci(),'color':a['color'],'engine':a.get('engine'),'dashed':a.get('dashed',False)} for a in arrows] if self.overlay_enabled.isChecked() else [],
                         'overlap_color':self.overlap_color,
                         'marks':[dict(m,square=chess.square_name(m['square'])) for m in marks] if self.overlay_enabled.isChecked() else [],
-                        'evaluation':assessment if self.browser_eval_enabled.isChecked() else None}
+                        'evaluation':browser_evaluation}
         self.browser_reader.publish(hints, evaluation_visible=(self._monitoring and not self._reviewing and not self.game_ended and self.browser_eval_enabled.isChecked()))
 
     def toggle_phone(self,enabled):
@@ -1551,6 +1606,17 @@ class MainWindow(QMainWindow):
         self.turn.setCurrentIndex(int(self.settings.get('turn_index',0)))
         self.always_top.setChecked(bool(self.settings.get('always_top',False)))
         for name,default in (('threats_enabled',False),('threat_attacks',False),('threat_mates',True)):getattr(self,name).setChecked(bool(self.settings.get(name,default)))
+        self.threat_refresh.setValue(self.settings.get("threat_refresh_ms", 150))
+        threat_colors = self.settings.get("threat_colors", {})
+        if isinstance(threat_colors, dict):
+            for key, button in self.threat_colors.items():
+                color = QColor(threat_colors.get(key, DEFAULT_COLORS[key]))
+                if color.isValid():
+                    button.set_color(color)
+        self.move_advantage.show_scores.setChecked(bool(self.settings.get("advantage_gain_arrows", self.settings.get("advantage_square_scores", False))))
+        score_color = QColor(self.settings.get("advantage_gain_color", self.settings.get("advantage_square_color", "#53c6df")))
+        if score_color.isValid():
+            self.move_advantage.score_color.set_color(score_color)
         saved_target=self.settings.get('target_lock')
         if int(self.settings.get('source_index',1))==1 and self.target_lock.restore(saved_target):
             try:
@@ -1560,6 +1626,7 @@ class MainWindow(QMainWindow):
             except (TypeError,ValueError):pass
         for name,default in (('eval_seconds',.3),('eval_depth',18),('eval_human_elo',1500),('prediction_plies',3),('prediction_seconds',3.)):getattr(self,name).setValue(self.settings.get(name,default))
         self.eval_engine.setCurrentIndex(max(0,self.eval_engine.findData(self.settings.get('eval_engine_id',0))))
+        self.move_advantage.restore_limits(self.settings)
         self.advantage_engine.setCurrentIndex(max(0, self.advantage_engine.findData(self.settings.get("advantage_engine_id", 0))))
         try:
             self.advantage_count.setValue(int(self.settings.get("advantage_count", 0)))
@@ -1604,7 +1671,14 @@ class MainWindow(QMainWindow):
         values.update({name:getattr(self,name).currentIndex() for name in ('engine_kind','playing_style','strength_mode','compare_a','compare_b','compare_c')})
         values.update({name:getattr(self,name).value() for name in ('engine_skill','engine_elo','human_elo')})
         values.update(eval_engine_id=self.eval_engine.currentData(),eval_seconds=self.eval_seconds.value(),eval_depth=self.eval_depth.value(),eval_human_elo=self.eval_human_elo.value(),predict_continuations=self.predict_continuations.isChecked(),prediction_plies=self.prediction_plies.value(),prediction_seconds=self.prediction_seconds.value())
-        values.update(advantage_engine_id=self.advantage_engine.currentData(), advantage_count=self.advantage_count.value())
+        values.update(advantage_engine_id=self.advantage_engine.currentData(), advantage_count=self.advantage_count.value(),
+                      advantage_mode=self.move_advantage.mode.currentText(),
+                      advantage_seconds=self.move_advantage.seconds.value(),
+                      advantage_depth=self.move_advantage.depth.value(),
+                      advantage_gain_arrows=self.move_advantage.show_scores.isChecked(),
+                      advantage_gain_color=self.move_advantage.score_color.color,
+                      threat_refresh_ms=self.threat_refresh.value(),
+                      threat_colors={key: button.color for key, button in self.threat_colors.items()})
         values.update(custom_engine=self.custom_engine.text(),dashed_reply=self.dashed_reply.isChecked())
         values.update(arrow_count=self.arrow_count.value(),threats_enabled=self.threats_enabled.isChecked(),threat_attacks=self.threat_attacks.isChecked(),threat_mates=self.threat_mates.isChecked(),target_lock=self.target_lock.target,active_preset=self.preset_combo.currentData())
         try:
@@ -1974,8 +2048,33 @@ class MainWindow(QMainWindow):
         except ValueError as exc:
             self.status(f"Could not load FEN: {exc}")
 
-    def threat_marks(self,board,bottom):
-        return threat_presentation(board,bottom,self.threats_enabled.isChecked(),self.threat_attacks.isChecked(),self.threat_mates.isChecked())
+    def threats_toggled(self, enabled):
+        if not enabled:
+            self.threat_updates.discard_pending()
+
+    def threat_style_changed(self, *_):
+        self.queue_autosave()
+        self.update_visuals()
+        self.multi.repaint()
+
+    def threats_ready(self, fen):
+        if self.closing or not self.threats_enabled.isChecked():
+            return
+        if self.tracker.board.fen() == fen:
+            self.update_visuals()
+        for state in self.multi.states:
+            if state.tracker and state.tracker.board.fen() == fen:
+                self.multi.render(state)
+
+    def threat_marks(self, board, bottom):
+        if not self.threats_enabled.isChecked():
+            return [], []
+        report = self.threat_updates.request(board.fen(), self.threat_refresh.value())
+        if report is None:
+            return [], []
+        colors = {key: button.color for key, button in self.threat_colors.items()}
+        return threat_presentation(board, bottom, True, self.threat_attacks.isChecked(),
+                                   self.threat_mates.isChecked(), colors=colors, report=report)
 
     def refresh_targets(self):
         if not hasattr(self,'target_board'):return
@@ -2172,7 +2271,10 @@ class MainWindow(QMainWindow):
             self.eval_bar.cp, self.eval_bar.mate = evaluation['cp'],evaluation['mate']
             self.eval_bar.white_share=evaluation.get('white_share')
         self.eval_bar.update()
-        self.eval_label.setText(f"{evaluation['provider']} · {evaluation['score']} · {evaluation['advantage']}")
+        score_text = evaluation_text(evaluation['cp'], evaluation['mate'], evaluation.get('white_share'),
+                                     white_bottom=self.white_bottom)
+        perspective = 'White' if self.white_bottom else 'Black'
+        self.eval_label.setText(f"{evaluation['provider']} · {score_text} for {perspective} · {evaluation['advantage']}")
         move_result=self.displayed_result(result)
         lead=move_result['lines'][0]
         locked=self.stick_to_move.isChecked()
@@ -2186,7 +2288,7 @@ class MainWindow(QMainWindow):
             self.simple_label.setText(f"Waiting for your turn · you are {'White' if self.white_bottom else 'Black'}" if self.only_my_color.isChecked() else "Suggestions for this side are hidden")
         self.reply_label.setText((lead.get('reply_simple','')+" · after #1") if show_other and self.show_reply.isChecked() and lead.get("reply_simple") else "")
         self.reply_label.setVisible(bool(self.reply_label.text()))
-        sections = [f"<h2>{side} to move · {evaluation['score']}</h2><p>Evaluation: {html.escape(evaluation['provider'])} · Moves: {html.escape(result['engine'])}</p>",
+        sections = [f"<h2>{side} to move · {score_text} for {perspective}</h2><p>Evaluation: {html.escape(evaluation['provider'])} · Moves: {html.escape(result['engine'])}</p>",
                     ""]
         if result.get('evaluation_kind')=='human-game outcome estimate':
             sections[1]="<p><b>Maia human predictions.</b> Ranked by predicted human choice. Scores and W/D/L are human-game outcome estimates, not Stockfish search evaluations. Depth is not used.</p>"
@@ -2268,6 +2370,11 @@ class MainWindow(QMainWindow):
         self.mark_custom_preset()
         if hasattr(self,"multi"):self.multi.repaint()
         self.quick_arrows.setChecked(self.overlay_enabled.isChecked())
+        arrow_slots = min(self.multipv.value(), self.arrow_count.value())
+        with QSignalBlocker(self.quick_arrow_count):
+            self.quick_arrow_count.setValue(arrow_slots)
+        self.rank_second.setEnabled(arrow_slots >= 2)
+        self.rank_others.setEnabled(arrow_slots >= 3)
         self.show_white.setEnabled(not self.only_my_color.isChecked())
         self.show_black.setEnabled(not self.only_my_color.isChecked())
         self.show_reply.setEnabled(not self.only_my_color.isChecked())
@@ -2303,10 +2410,9 @@ class MainWindow(QMainWindow):
             color_allowed,other_allowed=self.allowed_colors()
             if locked:other_allowed=False
             side="W" if self.tracker.board.turn else "B"
-            colors=[self.extra_engines.primary_color,"#61b9ff","#c49bff","#ff90b2","#83e4bb"]
             for index,line in enumerate(move_result["lines"][:1 if locked else min(self.multipv.value(),self.arrow_count.value())],1):
                 if color_allowed and self.visible_rank(index):
-                    arrows.append({"move":chess.Move.from_uci(line["move"]),"color":colors[(index-1)%len(colors)],"label":f"{side}{index}"})
+                    arrows.append({"move":chess.Move.from_uci(line["move"]),"color":self.recommendation_color(index),"label":f"{side}{index}"})
             lead=move_result["lines"][0]
             if other_allowed and self.show_reply.isChecked() and self.rank_best.isChecked() and lead.get("reply_move"):
                 arrows.append({"move":chess.Move.from_uci(lead["reply_move"]),"color":"#53e2e4","label":"B↳" if side=="W" else "W↳","reply":True,"dashed":self.dashed_reply.isChecked()})
@@ -2317,6 +2423,7 @@ class MainWindow(QMainWindow):
         self.board_view.arrows=arrows
         self.board_view.overlap_color = self.overlay.overlap_color = self.overlap_color
         marks,messages=self.threat_marks(self.tracker.board,self.white_bottom)
+        marks.extend(self.move_advantage.marks(self.tracker.board))
         self.board_view.marks=marks
         self.board_view.setToolTip('\n'.join(messages) if messages else 'Recognized chess position')
         if not self.arrow_labels.isChecked():
@@ -2425,9 +2532,18 @@ class MainWindow(QMainWindow):
             self.last_requested_fen = None
         self.status("STOPPED · screen monitoring and engine search are off")
 
-    def recommendation_preset(self,count):
-        self.multipv.setValue(count);self.arrow_count.setValue(count)
-        self.rank_best.setChecked(True);self.rank_second.setChecked(count>=2);self.rank_others.setChecked(count>=3)
+    def recommendation_color(self, rank):
+        colors = (self.extra_engines.primary_color, "#61b9ff", "#c49bff", "#ff90b2", "#83e4bb",
+                  "#f38954", "#b3dc6c", "#e679bc", "#71decf", "#e4db86")
+        return colors[rank - 1]
+
+    def recommendation_preset(self, count):
+        self.multipv.setValue(count)
+        count = self.multipv.value()
+        self.arrow_count.setValue(count)
+        self.rank_best.setChecked(True)
+        self.rank_second.setChecked(count >= 2)
+        self.rank_others.setChecked(count >= 3)
         self.visual_settings_changed()
 
     def open_engine_library(self,checked=False):
@@ -2474,6 +2590,7 @@ class MainWindow(QMainWindow):
             else:self.strength_mode.setCurrentText('Full strength')
         self.playing_style.setEnabled(not tiny and not human and selected.kind!='flounder' and (not stockfish or self.strength_mode.currentText()=='Full strength'))
         self.multipv.setMaximum(1 if tiny else 10)
+        self.quick_arrow_count.setEnabled(not tiny)
         for count,button in self.preset_buttons:button.setEnabled(not tiny or count==1)
         self.engine_profile_label.setText(engine_profiles.summary(selected.identity))
         self.engine_capabilities.setText('One move · no evaluation' if tiny else '')
@@ -2606,7 +2723,6 @@ class MainWindow(QMainWindow):
 
     def evaluation_settings_changed(self,*_):
         if not hasattr(self,'evaluations'):return
-        self.move_advantage.refresh()
         kind=engine_library.ENTRIES[self.eval_engine.currentData()].kind
         for field in (self.eval_seconds,self.eval_depth):field.setEnabled(kind not in ('maia3','maia2'))
         self.eval_human_elo.setEnabled(kind in ('maia3','maia2'))
@@ -2625,7 +2741,10 @@ class MainWindow(QMainWindow):
                 score=self.evaluations.score(self.tracker.board)
                 if score['cp'] is not None or score['mate'] is not None or score.get('white_share') is not None:
                     self.eval_bar.cp,self.eval_bar.mate,self.eval_bar.white_share=score['cp'],score['mate'],score.get('white_share')
-                self.eval_bar.update();self.eval_label.setText(score['provider']+' · '+score['score'])
+                self.eval_bar.update()
+                perspective = 'White' if self.white_bottom else 'Black'
+                shown = evaluation_text(score['cp'], score['mate'], score.get('white_share'), white_bottom=self.white_bottom)
+                self.eval_label.setText(f"{score['provider']} · {shown} for {perspective}")
                 self.update_screen_evaluation()
         for state in self.multi.states:
             if state.tracker and state.tracker.board.fen()==fen:self.multi.render(state)
@@ -2739,6 +2858,7 @@ class MainWindow(QMainWindow):
         if hasattr(self,'autosave_timer'):self.autosave_timer.stop()
         self.settings_dialog.close()
         self.move_advantage.close_engine()
+        self.threat_updates.close()
         if self.game_review is not None:
             self.game_review.close()
         if hasattr(self,'comparison'):self.comparison.close()

@@ -62,11 +62,15 @@
   panel.fill.style.top=panel.horizontal||board.white_bottom?'auto':'0';
   if(typeof mate==='number')panel.label.textContent=(mate>0?'+':'−')+'M'+Math.abs(mate);else if(typeof cp==='number')panel.label.textContent=(cp>=0?'+':'')+(cp/100).toFixed(2);
   if(typeof score==='string'&&score!=='—')panel.label.textContent=score;
-  panel.root.title=(value.provider||'Evaluation')+' · White perspective. Drag to move; resize at lower right.';
+  panel.root.title=(value.provider||'Evaluation')+' · '+(value.perspective||'White')+' perspective. Drag to move and resize from the lower-right corner.';
   const r=panel.root.getBoundingClientRect();if(r.right>innerWidth)panel.root.style.left=Math.max(0,innerWidth-r.width)+'px';if(r.bottom>innerHeight)panel.root.style.top=Math.max(0,innerHeight-r.height)+'px';
   return panel;
  }
- let busy=false,last=0,lastRequested='',view=0;
+ let busy=false,last=0,lastRequested='',view=0,pending=null,drawn='';
+ function clearArrows(){
+  layer.replaceChildren();
+  drawn='';
+ }
  function stillCurrent(requested,revision){
   return requested===lastRequested&&revision===view&&document.visibilityState==='visible';
  }
@@ -74,6 +78,61 @@
   const node=document.createElementNS(ns,tag);
   for(const [name,value] of Object.entries(attributes))node.setAttribute(name,value);
   return node;
+ }
+ const labelMetrics=document.createElement('canvas').getContext('2d');
+ function markLayers(board, marks){
+  const highlights=[],arrows=[],badges=[];
+  const {rect,points}=board,cell=rect.width/8;
+  function center(square){
+   const value=points[square];
+   return value&&[rect.x+value[0]*rect.width,rect.y+value[1]*rect.height];
+  }
+  for(const mark of marks){
+   if(mark.kind==='move_score')continue;
+   const destination=center(mark.square);
+   if(!destination)continue;
+   const [x,y]=destination;
+   if(mark.kind!=='gain_arrow'){
+    const covered=mark.kind==='attack',mate=mark.kind==='mate';
+    if(!covered)highlights.push(svg('rect',{x:x-cell/2,y:y-cell/2,width:cell,height:cell,
+     fill:mark.color,'fill-opacity':mate?.17:.125}));
+    const radius=Math.max(2.2,cell*(covered?.048:.068)),cx=x+cell*.37,cy=y+cell*.37;
+    const style={fill:mark.color,stroke:'#21192d','stroke-width':Math.max(.8,cell*.015)};
+    highlights.push(mate
+     ?svg('polygon',{...style,points:`${cx},${cy-radius} ${cx+radius},${cy} ${cx},${cy+radius} ${cx-radius},${cy}`})
+     :svg('circle',{...style,cx,cy,r:radius}));
+    continue;
+   }
+   const origin=center(mark.move?.slice(0,2));
+   if(!origin||typeof mark.label!=='string')continue;
+   const [sx,sy]=origin,distance=Math.hypot(x-sx,y-sy);
+   if(!distance)continue;
+   const ux=(x-sx)/distance,uy=(y-sy)/distance;
+   const startX=sx+ux*cell*.18,startY=sy+uy*cell*.18;
+   const tipX=x-ux*cell*.11,tipY=y-uy*cell*.11;
+   const tailX=tipX-ux*cell*.21,tailY=tipY-uy*cell*.21;
+   const wx=-uy*cell*.125,wy=ux*cell*.125;
+   const d=`M ${startX} ${startY} L ${tailX} ${tailY} M ${tailX+wx} ${tailY+wy} L ${tipX} ${tipY} L ${tailX-wx} ${tailY-wy}`;
+   const outline='#1a1527',stroke=Math.max(1.6,cell*.032);
+   const path={d,fill:'none','stroke-linecap':'round','stroke-linejoin':'round'};
+   arrows.push(svg('path',{...path,stroke:outline,'stroke-width':stroke+2.4}));
+   arrows.push(svg('path',{...path,stroke:mark.color,'stroke-width':stroke}));
+
+   const cx=startX+(tipX-startX)*.56,cy=startY+(tipY-startY)*.56;
+   const fontSize=Math.max(9,Math.min(17,Math.round(cell*.19)));
+   labelMetrics.font=`700 ${fontSize}px system-ui`;
+   const width=labelMetrics.measureText(mark.label).width+Math.max(12,cell*.27);
+   const height=Math.max(13,fontSize*1.32+3);
+   const badge=svg('g',{'data-gain-move':mark.move});
+   badge.append(svg('rect',{x:cx-width/2,y:cy-height/2,width,height,rx:height*.31,fill:outline,
+    stroke:mark.color,'stroke-width':Math.max(1,cell*.02)}));
+   const label=svg('text',{x:cx,y:cy,fill:'#f8f4ff','text-anchor':'middle',
+    'dominant-baseline':'central','font-family':'system-ui','font-size':fontSize,'font-weight':700});
+   label.textContent=mark.label;
+   badge.append(label);
+   badges.push(badge);
+  }
+  return {highlights,gains:[...arrows,...badges]};
  }
  function arrowLayers(board,hint){
   const definitions=svg('defs',{}),base=[],overlaps=[],ids=[];
@@ -103,23 +162,27 @@
   }
   return base.length?[definitions,...base,...overlaps]:[];
  }
- window.addEventListener('message',async event=>{
+ window.addEventListener('message',event=>{
   if(event.source!==window||event.origin!==location.origin||!event.data?.boardlensRead)return;
-  const boards=event.data.boards;if(!Array.isArray(boards)||boards.length>3)return;
-  if(document.visibilityState!=='visible'){layer.replaceChildren();clearEvaluations();boardLensCoach.clear();return}
+  const {boards}=event.data;
+  if(!Array.isArray(boards)||boards.length>3||document.visibilityState!=='visible'||!document.hasFocus())return;
+  readBoards(boards,event.data.dashboard===true);
+ });
+ async function readBoards(boards,dashboard){
   const revision=view,requested=JSON.stringify(boards.map(b=>[b.index,b.board_id,b.fen,b.white_bottom,b.practice_id,b.practice_focused]));
   const coachBoard=boards.find(board=>board.index===0)||boards[0];
   if(requested!==lastRequested){
-   layer.replaceChildren();lastRequested=requested;
+   clearArrows();lastRequested=requested;
    if(coachBoard)boardLensCoach.update(null);
    else boardLensCoach.clear();
   }
-  if(busy)return;busy=true;
+  if(busy){pending={boards,dashboard};return}
+  busy=true;
   try{
-   const response=await chrome.runtime.sendMessage({type:'boards',focused:document.hasFocus(),dashboard:event.data.dashboard===true,boards:boards.map(b=>({index:b.index,board_id:b.board_id,moves:b.moves,game_result:b.game_result,fen:b.fen,exact:b.exact,practice_id:b.practice_id,practice_kind:b.practice_kind,practice_focused:b.practice_focused,turn_hint:b.turn_hint,white_bottom:b.white_bottom}))});
+   const response=await chrome.runtime.sendMessage({type:'boards',focused:true,dashboard,boards:boards.map(b=>({index:b.index,board_id:b.board_id,moves:b.moves,game_result:b.game_result,fen:b.fen,exact:b.exact,practice_id:b.practice_id,practice_kind:b.practice_kind,practice_focused:b.practice_focused,turn_hint:b.turn_hint,white_bottom:b.white_bottom}))});
    if(!stillCurrent(requested,revision))return;
-   if(!response||response.error){if(response?.repair){notice.textContent='BoardLens: '+response.error;notice.hidden=false}if(Date.now()-last>1500){layer.replaceChildren();clearEvaluations();boardLensCoach.clear()}return}notice.hidden=true;last=Date.now();
-   const fragments=[];
+   if(!response||response.error){if(response?.repair){notice.textContent='BoardLens: '+response.error;notice.hidden=false}if(Date.now()-last>1500){clearArrows();clearEvaluations();boardLensCoach.clear()}return}notice.hidden=true;last=Date.now();
+   const layers=[];
    let coachHint;
    for(const [id,panel] of evalPanels){
     if(response.evaluation_visible===false||!boards.some(b=>b.index===id&&b.board_id===panel.boardId)){
@@ -127,35 +190,61 @@
     }
    }
    for(const b of boards){
-    const i=b.index,hint=Object.entries(response).find(([k,v])=>k.endsWith(':'+i)&&v.fen===b.fen);if(!hint)continue;
+    const i=b.index,hint=Object.entries(response).find(([k,v])=>
+     k.endsWith(':'+i)&&v.fen===b.fen&&(!Object.hasOwn(v,'board_id')||v.board_id===b.board_id));
+    if(!hint)continue;
     if(b===coachBoard)coachHint=hint[1];
     if(hint[1].evaluation) evaluation(i,b,hint[1].evaluation);
     else if(Object.hasOwn(hint[1],'evaluation')&&evalPanels.has(i)){
      const panel=evalPanels.get(i);panel.observer?.disconnect();panel.root.remove();evalPanels.delete(i);
     }
-    for(const m of hint[1].marks||[]){
-     const point=b.points[m.square];if(!point)continue;
-     const circle=document.createElementNS(ns,'circle'),r=b.rect;
-     circle.setAttribute('cx',r.x+point[0]*r.width);circle.setAttribute('cy',r.y+point[1]*r.height);circle.setAttribute('r',r.width/8*(m.kind==='attack'?.12:.36));circle.setAttribute('fill',m.color);circle.setAttribute('fill-opacity',m.kind==='attack'?'.25':'.4');
-     if(m.kind!=='attack'){circle.setAttribute('stroke',m.color);circle.setAttribute('stroke-width','2')}
-     fragments.push(circle);
-    }
-    if(boardLensCoach.showArrows)fragments.push(...arrowLayers(b,hint[1]));
+    const {arrows,marks,overlap_color}=hint[1];
+    layers.push({board:b,hints:{arrows,marks,overlap_color}});
    }
-   layer.replaceChildren(...fragments);
+   const showArrows=boardLensCoach.showArrows;
+   const signature=JSON.stringify([showArrows,layers.map(({board,hints})=>[
+    board.index,board.board_id,board.rect,board.points,hints
+   ])]);
+   if(signature!==drawn){
+    const fragments=[];
+    for(const {board,hints} of layers){
+     const {highlights,gains}=markLayers(board,hints.marks||[]);
+     fragments.push(...highlights);
+     if(showArrows)fragments.push(...arrowLayers(board,hints));
+     fragments.push(...gains);
+    }
+    layer.replaceChildren(...fragments);
+    drawn=signature;
+   }
    if(coachBoard)boardLensCoach.update(coachHint?.coach, Boolean(coachHint));
    else boardLensCoach.clear();
-  }catch(error){if(String(error).includes('context invalidated')){notice.textContent='BoardLens: reload this chess tab to reconnect the reader.';notice.hidden=false}if(Date.now()-last>1500){layer.replaceChildren();clearEvaluations();boardLensCoach.clear()}}finally{busy=false}
- });
+  }catch(error){
+   if(String(error).includes('context invalidated')){
+    notice.textContent='BoardLens: reload this chess tab to reconnect the reader.';
+    notice.hidden=false;
+   }
+   if(Date.now()-last>1500){clearArrows();clearEvaluations();boardLensCoach.clear()}
+  }finally{
+   busy=false;
+   const next=pending;
+   pending=null;
+   if(next&&document.hasFocus()&&document.visibilityState==='visible'){
+    readBoards(next.boards,next.dashboard);
+   }
+  }
+ }
  function releaseBoard(){
+  view++;
+  pending=null;
+  lastRequested='';
+  clearArrows();
+  clearEvaluations();
+  boardLensCoach.clear();
   chrome.runtime.sendMessage({type:'boards',focused:false,boards:[]}).catch(()=>{});
  }
- window.addEventListener('blur',()=>{view++;releaseBoard();boardLensCoach.clear()});
+ window.addEventListener('blur',releaseBoard);
  window.addEventListener('focus',()=>{view++});
  document.addEventListener('visibilitychange',()=>{
-  view++;
-  layer.replaceChildren();clearEvaluations();boardLensCoach.clear();
-  if(document.visibilityState!=='visible')
-   releaseBoard();
+  if(document.visibilityState!=='visible')releaseBoard();
  });
 })();

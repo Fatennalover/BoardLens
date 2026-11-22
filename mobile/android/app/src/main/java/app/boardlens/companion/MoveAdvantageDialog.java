@@ -7,13 +7,14 @@ import android.content.SharedPreferences;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CancellationException;
 
 final class MoveAdvantageDialog implements AutoCloseable {
-    private static final String[] SCORERS = {"stockfish", "lc0"};
+    private static final String[] LIMITS = {"Time + depth", "Time", "Depth"};
     private final Activity activity;
     private final SharedPreferences preferences;
     private final MobileUi ui;
@@ -26,6 +27,9 @@ final class MoveAdvantageDialog implements AutoCloseable {
     private String fen;
     private volatile int generation;
     private int count;
+    private int timeMs, depth;
+    private String mode;
+    private StudioBoard preview;
     private String scorer;
 
     MoveAdvantageDialog(Activity activity) {
@@ -36,9 +40,17 @@ final class MoveAdvantageDialog implements AutoCloseable {
 
     void show(ChessPosition board) {
         if (dialog != null) return;
-        scorer = preferences.getString("engine", "stockfish");
-        int selected = scorer.equals("lc0") ? 1 : 0;
-        scorer = SCORERS[selected];
+        List<EngineCatalog.Entry> catalog = EngineCatalog.ALL.stream()
+                .filter(entry -> !entry.tiny() && !entry.policy())
+                .filter(entry -> entry.id().equals("stockfish") || EngineCatalog.ready(activity, entry.id()))
+                .toList();
+        String savedScorer = preferences.getString("engine", "stockfish");
+        int selected = Math.max(0, catalog.stream().map(EngineCatalog.Entry::id).toList().indexOf(savedScorer));
+        scorer = catalog.get(selected).id();
+        PhoneSettings currentSettings = new PhoneSettings(activity);
+        timeMs = preferences.getInt("time_ms", Math.round(currentSettings.evaluationSeconds() * 1000));
+        depth = preferences.getInt("depth", currentSettings.evaluationDepth());
+        mode = preferences.getString("mode", LIMITS[0]);
         count = Math.max(0, Math.min(6, preferences.getInt("count", 3)));
 
         ScrollView scroll = new ScrollView(activity);
@@ -47,13 +59,29 @@ final class MoveAdvantageDialog implements AutoCloseable {
         LinearLayout content = ui.column();
         content.setPadding(ui.dp(20), ui.dp(14), ui.dp(20), ui.dp(16));
         scroll.addView(content, new ScrollView.LayoutParams(-1, -2));
-        String[] enginesList = new String[SCORERS.length];
-        for (int i = 0; i < SCORERS.length; i++) {
-            enginesList[i] = EngineCatalog.get(SCORERS[i]).name();
-        }
+        String[] enginesList = catalog.stream().map(EngineCatalog.Entry::name).toArray(String[]::new);
         content.addView(ui.choice("Scoring engine", enginesList, selected, index -> {
-            scorer = SCORERS[index];
+            scorer = catalog.get(index).id();
             preferences.edit().putString("engine", scorer).apply();
+            compare();
+        }));
+        ui.gap(content, 8);
+        content.addView(ui.choice("Search limit", LIMITS, List.of(LIMITS).indexOf(mode), index -> {
+            mode = LIMITS[index];
+            preferences.edit().putString("mode", mode).apply();
+            compare();
+        }));
+        ui.gap(content, 8);
+        content.addView(ui.text("Time budget (ms)", 14, MobileUi.MUTED, false));
+        content.addView(new MobileUi.Stepper(ui, 50, 30000, timeMs, 50, value -> {
+            timeMs = value;
+            preferences.edit().putInt("time_ms", value).apply();
+            compare();
+        }));
+        content.addView(ui.text("Depth", 14, MobileUi.MUTED, false));
+        content.addView(new MobileUi.Stepper(ui, 1, 60, depth, value -> {
+            depth = value;
+            preferences.edit().putInt("depth", value).apply();
             compare();
         }));
         ui.gap(content, 12);
@@ -71,6 +99,11 @@ final class MoveAdvantageDialog implements AutoCloseable {
         content.addView(status);
         results = ui.column();
         content.addView(results);
+        preview = new StudioBoard(activity);
+        preview.maximumSide(260);
+        preview.setContentDescription("Positive gain arrows");
+        preview.setVisibility(android.view.View.GONE);
+        content.addView(preview);
         engines = new LocalEngines();
         worker = new LatestWorkQueue("move-advantage");
         dialog = new AlertDialog.Builder(activity).setTitle("Move advantage").setView(scroll)
@@ -97,6 +130,7 @@ final class MoveAdvantageDialog implements AutoCloseable {
         int ticket = ++generation;
         engines.cancel();
         results.removeAllViews();
+        preview.setVisibility(android.view.View.GONE);
         if (count == 0) {
             status.setText("Choose how many moves to compare.");
             return;
@@ -116,8 +150,8 @@ final class MoveAdvantageDialog implements AutoCloseable {
         int moves = count;
         PhoneSettings settings = new PhoneSettings(activity).snapshot();
         PhoneSettings limits = settings.override(Map.of("engine", engine, "style", "Balanced",
-                "predict", false, "moves", 1, "mode", "Time + depth", "depth", settings.evaluationDepth(),
-                "seconds", settings.evaluationSeconds(), "threads", 1, "skill", 20));
+                "predict", false, "moves", 1, "mode", mode, "depth", depth,
+                "seconds", timeMs / 1000f, "threads", 1, "skill", 20));
         LocalEngines session = engines;
         worker.submit(() -> {
             try {
@@ -142,11 +176,19 @@ final class MoveAdvantageDialog implements AutoCloseable {
         if (ticket != generation) return;
         int sign = board.white ? 1 : -1;
         status.setText(name + " · " + (board.white ? "White" : "Black") + " to move\nCurrent " + score(current, sign));
+        List<StudioBoard.Arrow> gains = new ArrayList<>();
         for (PhoneEngine.Line line : lines) {
             if (line.cp() == null && line.mate() == null) continue;
+            String delta = change(current, line, sign);
+            if (delta.startsWith("+")) gains.add(new StudioBoard.Arrow(line.move(), 0xff53c6df, delta));
             ui.gap(results, 7);
             results.addView(ui.text(board.notation(line.move()) + "   " + score(line, sign)
-                    + " after   " + change(current, line, sign) + " change", 15, MobileUi.FG, false));
+                    + " after   " + delta + " change", 15, MobileUi.FG, false));
+        }
+        if (!gains.isEmpty()) {
+            preview.position(board, board.white);
+            preview.hints(-1, gains);
+            preview.setVisibility(android.view.View.VISIBLE);
         }
         if (results.getChildCount() == 0) status.setText(name + " did not return scored moves.");
     }

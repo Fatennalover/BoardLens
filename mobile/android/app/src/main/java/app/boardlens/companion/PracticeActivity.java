@@ -258,10 +258,9 @@ public final class PracticeActivity extends Activity {
       displayed = (best.cp() == null && best.mate() == null ? provider : evaluated.text())
           + "\n" + board.simple(best.move()) + " · " + board.notation(best.move());
       if (reviewing && !best.pv().isEmpty()) displayed += "\nEngine line · " + continuationText(board, best.pv());
-      int color = Color.parseColor(settings.mainColor());
       int arrowsToShow = Math.min(reviewing ? 1 : settings.moves(), lines.size());
-      for (PhoneEngine.Line line : lines.subList(0, arrowsToShow)) {
-        arrows.add(new StudioBoard.Arrow(line.move(), color));
+      for (int rank = 0; rank < arrowsToShow; rank++) {
+        arrows.add(new StudioBoard.Arrow(lines.get(rank).move(), Color.parseColor(settings.arrowColor(rank))));
       }
     }
     if (reviewing) {

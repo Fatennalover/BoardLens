@@ -12,7 +12,9 @@ ENGINE_NAMES=[entry.label for entry in engine_library.ENTRIES]
 COMPARE_NAMES=['Stockfish · maximum','Stockfish · selected strength','Maia-3 · selected rating','Custom UCI']+[entry.label for entry in engine_library.ENTRIES[3:]]
 
 def entry(window):return engine_library.selected(window.engine_kind.currentIndex())
-def is_human(window):return entry(window).kind in ('maia3','maia2','maia1','neural','allie')
+def is_human(window, index=None):
+    selected = entry(window) if index is None else engine_library.selected(index)
+    return selected.kind in ('maia3', 'maia2', 'maia1', 'neural', 'allie')
 def is_tiny(window):return entry(window).kind=='tiny'
 
 def maia_python():

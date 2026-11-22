@@ -322,7 +322,7 @@ public final class BrowserBoardActivity extends Activity {
     }
 
     private void acceptRecommendation(long token,PhoneEngine.Result result) {
-        if(token!=generation.get())return;
+        if(token!=generation.get() || position==null || !position.fen().equals(result.fen()))return;
         recommendation=result;
         showPrediction(result);
         publish();
@@ -362,7 +362,7 @@ public final class BrowserBoardActivity extends Activity {
                 int rank=0;
                 var lines=recommendation.lines();
                 for(var line:lines.subList(0,Math.min(settings.moves(),lines.size()))){
-                    arrows.put(new JSONObject().put("move",line.move()).put("color",rank++==0?settings.mainColor():"#ba9cff"));
+                    arrows.put(new JSONObject().put("move",line.move()).put("color",settings.arrowColor(rank++)));
                 }
             }
             if(settings.arrows()&&(!settings.onlyMine()||position.white==whiteBottom)){

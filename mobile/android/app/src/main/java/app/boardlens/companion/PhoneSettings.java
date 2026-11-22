@@ -5,7 +5,13 @@ import android.content.SharedPreferences;
 
 /** Deliberately separate from computer companion preferences. */
 final class PhoneSettings {
+  private static final String[] RANK_COLORS = {"#ffc65c", "#61b9ff", "#c49bff", "#ff90b2", "#83e4bb"};
   final SharedPreferences p;
+
+  String arrowColor(int rank) {
+    return rank == 0 ? mainColor() : RANK_COLORS[rank % RANK_COLORS.length];
+  }
+
   private java.util.Map<String,?> frozen;
   PhoneSettings snapshot(){PhoneSettings copy=new PhoneSettings(p);copy.frozen=new java.util.HashMap<>(p.getAll());return copy;}
   PhoneSettings override(java.util.Map<String,?> values){

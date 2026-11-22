@@ -525,7 +525,7 @@
       "Are both arrows moves I should play now?"
     ],
     "steps": [
-      "Choose Suggested moves in Engine.",
+      "Open Engine settings and choose a Move preset from 1 to 5, or enter a custom Suggested moves count.",
       "Use Arrows → Moves to draw and rank filters to control visibility.",
       "Opponent reply shows a continuation after the best move, not a second move for the current turn."
     ],
@@ -590,7 +590,7 @@
     "id": "eval",
     "category": "Arrows and evaluation",
     "title": "Read the evaluation bar",
-    "summary": "Positive values favor White; negative values favor Black. M means the engine found a forced mate. The bar is not a winning percentage.",
+    "summary": "The evaluation bar follows the color at the bottom of the board. A plus sign favors that side.",
     "questions": [
       "Why does it say White is winning?",
       "Is +2 a 100 percent chance to win?",
@@ -598,11 +598,11 @@
       "How do I enable the evaluation overlay on my desktop screen?"
     ],
     "steps": [
-      "Read the signed score next to the board. +1.00 is roughly a pawn-sized engine advantage for White.",
-      "A neutral dash means there is no supplied evaluation yet.",
-      "Use Full analysis for the complete explanation and variations."
+      "With Black at the bottom, +6.40 means Black is ahead by about 6.4 pawns. Flip the board to see the same position from White’s side.",
+      "M3 shows a forced mate in three moves. A dash means the engine has not supplied a score.",
+      "Enable Screen evaluation under Engine → Evaluation bar to see a bar beside the external board."
     ],
-    "details": "Strength-limited suggestions and Maia predictions are labelled. Maia scores describe human-game outcomes; Tiny bots do not supply an evaluation. To show an animated score beside the actual board, open Engine → Evaluation bar and enable Screen evaluation. It is independent of Screen arrows, remains click-through and uses the separately selected evaluation engine.",
+    "details": "The bar can show pawn estimates, forced mate distances, or a separately labelled human-model estimate. Use Full analysis for move lines and explanations.",
     "controls": [],
     "aliases": [
       "win percentage",
@@ -614,17 +614,19 @@
     "id": "threats",
     "category": "Arrows and evaluation",
     "title": "Threat highlights",
-    "summary": "Red rings mark possible material loss in legal capture exchanges. Purple rings mark mate-in-one targets for the side to move.",
+    "summary": "Colored squares show pieces at risk, squares under attack, and mate-in-one destinations.",
     "questions": [
       "What are the red and purple circles?",
+      "What does the highlighted square mean?",
+      "Which piece is threatening mine?",
       "How do I show attacked squares?"
     ],
     "steps": [
-      "Arrows → Threats → Threat highlights.",
-      "Show attacked squares adds dots for the opponent of the bottom color.",
-      "Show mate-in-one targets enables purple targets."
+      "Open Settings → Arrows → Threats and enable Threat highlights. A material-at-risk square marks the piece that could lose material after captures and recaptures.",
+      "Enable Show attacked squares to see squares covered by the opponent of the bottom side. Multiple attackers use their own color. Mate-in-one squares show where the side to move can deliver mate.",
+      "Hover over the board inside BoardLens to identify the piece and which squares its capturers can move from. Use the color pickers and Threat refresh interval to customize the display."
     ],
-    "details": "These bounded capture checks are estimates. They do not prove every tactic or assess all sacrifices. Hover the mirrored board for explanations.",
+    "details": "The check runs in the background and looks at immediate capture exchanges and mate in one. Longer tactics can go unmarked.",
     "controls": [
       "threats_enabled",
       "threat_attacks",
@@ -882,12 +884,13 @@
     "id": "move-advantage",
     "category": "Engines",
     "title": "Compare how moves change the score",
-    "summary": "Move advantage shows the estimated score after up to six moves and the change for the side to move.",
-    "details": "The starting score comes from a separate search of the current position. Each candidate's score accounts for the engine's expected reply. Mate distances appear in place of pawn scores. The scoring engine uses Evaluation think time and the depth cap.",
+    "summary": "Compare up to six moves with a scoring engine of your choice and show gains on the board.",
+    "details": "Search engines compare pawn-sized scores. Model estimates use percentage points. Mate distances and engines that supply moves without numeric scores have their own labels.",
     "steps": [
-      "Open Move advantage next to Analysis and Moves.",
-      "Choose a scoring engine and set how many moves to compare.",
-      "Read After for the move's estimated score and Change for the gain or drop relative to the current estimate. Set the count to zero to turn it off."
+      "Open Move advantage next to Analysis and Moves. Select an installed engine and set Moves to compare.",
+      "Choose Time, Depth, or Time + depth and adjust the budget for this scoring engine. Use Engine settings for the separate recommendation engine.",
+      "After shows the estimated result of the move. Change shows the gain or drop compared with the current estimate for the side to move.",
+      "Turn on Gain arrows to see a distinct arrow from the piece to its destination, with the estimated increase. Zero and negative changes appear in the table. Use Arrow style to change the arrow color."
     ],
     "questions": [
       "Which move increases my advantage?",

@@ -156,8 +156,10 @@ class MultiBoards(QObject):
             state.hint_filter.reset()
         key=(getattr(read,'game_identity',None),tuple(read.symbols),read.white_bottom,getattr(read,'exact_fen',None))
         if key!=state.key:
-            state.key=key;state.stable=1;state.confirmed=False;state.read=read
-            state.overlay.hide();self.render(state);return
+            state.key=key;state.stable=0
+            if not getattr(read, 'exact_fen', None):
+                state.stable=1;state.confirmed=False;state.read=read
+                state.overlay.hide();self.render(state);return
         state.stable+=1;state.confirmed=True;state.read=read
         try:
             if getattr(read, 'exact_fen', None):
@@ -245,14 +247,14 @@ class MultiBoards(QObject):
             lead=shown['lines'][0];locked=w.stick_to_move.isChecked()
             card.move.setText(lead['simple']+(' · locked' if locked else '') if current else 'Waiting for your turn' if w.only_my_color.isChecked() else 'Suggestions hidden')
             for rank,line in enumerate(shown['lines'][:1 if locked else min(w.arrow_count.value(),w.multipv.value())],1):
-                if current and w.visible_rank(rank):arrows.append({'move':chess.Move.from_uci(line['move']),'color':['#ffc65c','#61b9ff','#c49bff'][(rank-1)%3]})
+                if current and w.visible_rank(rank):arrows.append({'move':chess.Move.from_uci(line['move']),'color':w.recommendation_color(rank)})
             if other and not locked and w.show_reply.isChecked() and w.rank_best.isChecked() and lead.get('reply_move'):
                 arrows.append({'move':chess.Move.from_uci(lead['reply_move']),'color':'#53e2e4','reply':True,'dashed':w.dashed_reply.isChecked()})
         else:card.move.setText('Thinking…' if state.job else 'Waiting for analysis')
         lead=w.evaluations.score(board,raw)
         if lead['kind'] != 'pending':
             card.bar.cp,card.bar.mate,card.bar.white_share=lead['cp'],lead['mate'],lead.get('white_share')
-            card.score.setText(f"{lead['score']} · {lead['advantage']}"+(' · thinking' if (raw or {}).get('provisional') else ''))
+            card.score.setText(f"{card.bar.score_text()} · {lead['advantage']}"+(' · thinking' if (raw or {}).get('provisional') else ''))
         if w.screen_eval_enabled.isChecked() and w._monitoring and state.confirmed and not w._reviewing:
             from PySide6.QtCore import QRect
             target=next((screen for screen in QGuiApplication.screens() if screen_key(screen)==state.region.screen_name),None)

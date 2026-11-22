@@ -21,7 +21,7 @@ Open **Review game** to analyze your recorded moves with Stockfish or another co
 
 ![BoardLens Game review with a clickable move list, evaluation and an arrow showing checkmate](docs/images/desktop-game-review.png)
 
-### Android 1.9.15
+### Android 1.9.16
 
 <p align="center"><img src="docs/images/android-practice.png" alt="Android Practice board with a side-to-move picker and a Stockfish arrow" width="280"> <img src="docs/images/android-game-review.png" alt="Android Game Review with a selectable engine continuation" width="280"></p>
 
@@ -53,10 +53,10 @@ Open the [latest BoardLens release](https://github.com/Fatennalover/BoardLens/re
 
 | Device | Download | Start |
 | --- | --- | --- |
-| Mac (Apple Silicon) | [BoardLens 2.19.12 ZIP](https://github.com/Fatennalover/BoardLens/releases/latest/download/BoardLens-Mac-AppleSilicon.zip) | Unzip, then open **BoardLens.app**. macOS 14+. |
-| Mac (Intel) | [BoardLens 2.19.12 DMG](https://github.com/Fatennalover/BoardLens/releases/latest/download/BoardLens-Mac-Intel.dmg) | Open the disk image and drag **BoardLens** into **Applications**. macOS 14+. |
-| Windows 10/11 (64-bit) | [BoardLens 2.19.12 ZIP](https://github.com/Fatennalover/BoardLens/releases/latest/download/BoardLens-Windows-x64.zip) | Extract the entire folder, then open **BoardLens.exe**. Keep Resources beside it. |
-| Android | [BoardLens 1.9.15 APK](https://github.com/Fatennalover/BoardLens/releases/latest/download/BoardLens-Companion-Android.apk) | Open **Practice and review** or **Phone screen**. Use **Engine library** to install Stockfish and optional models. |
+| Mac (Apple Silicon) | [BoardLens 2.19.13 ZIP](https://github.com/Fatennalover/BoardLens/releases/latest/download/BoardLens-Mac-AppleSilicon.zip) | Unzip, then open **BoardLens.app**. macOS 14+. |
+| Mac (Intel) | [BoardLens 2.19.13 DMG](https://github.com/Fatennalover/BoardLens/releases/latest/download/BoardLens-Mac-Intel.dmg) | Open the disk image and drag **BoardLens** into **Applications**. macOS 14+. |
+| Windows 10/11 (64-bit) | [BoardLens 2.19.13 ZIP](https://github.com/Fatennalover/BoardLens/releases/latest/download/BoardLens-Windows-x64.zip) | Extract the entire folder, then open **BoardLens.exe**. Keep Resources beside it. |
+| Android | [BoardLens 1.9.16 APK](https://github.com/Fatennalover/BoardLens/releases/latest/download/BoardLens-Companion-Android.apk) | Open **Practice and review** or **Phone screen**. Use **Engine library** to install Stockfish and optional models. |
 | iPhone / iPad | Phone browser, or unsigned iOS source ZIP | Open the desktop companion address. Native source needs Xcode and your signing setup. |
 
 The desktop app includes a private Python runtime, recognition models and Stockfish 19. No Terminal or Python installation is required. The first launch prepares its files in your user profile; later launches reuse them. Settings and optional engines remain in the normal BoardLens app-data folder, including when upgrading from the source version. Optional engines download only when selected. The Mac apps are ad-hoc signed, not notarized; Windows is unsigned. [Desktop installation and build details →](docs/DESKTOP-APPS.md)

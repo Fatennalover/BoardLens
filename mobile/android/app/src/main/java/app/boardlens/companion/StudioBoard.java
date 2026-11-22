@@ -12,7 +12,9 @@ import java.util.function.IntConsumer;
 
 /** UI-only board. The capture service never draws or animates this view. */
 final class StudioBoard extends View {
-  record Arrow(String move, int color) {}
+  record Arrow(String move, int color, String gain) {
+    Arrow(String move, int color) { this(move, color, null); }
+  }
   private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
   private final RectF tile = new RectF();
   private final Map<Character,Bitmap> pieces = new HashMap<>();
@@ -117,6 +119,37 @@ final class StudioBoard extends View {
     float distance = (float) Math.hypot(endX - x, endY - y);
     if (distance == 0) return;
     float dx = (endX - x) / distance, dy = (endY - y) / distance;
+    if (arrow.gain != null) {
+      float neckX = endX - dx * cell * .25f, neckY = endY - dy * cell * .25f;
+      float spread = cell * .12f;
+      Path outline = new Path();
+      outline.moveTo(x + dx * cell * .18f, y + dy * cell * .18f);
+      outline.lineTo(neckX, neckY);
+      outline.moveTo(neckX + dy * spread, neckY - dx * spread);
+      outline.lineTo(endX, endY);
+      outline.lineTo(neckX - dy * spread, neckY + dx * spread);
+      paint.setStyle(Paint.Style.STROKE);
+      paint.setStrokeJoin(Paint.Join.ROUND);
+      paint.setStrokeCap(Paint.Cap.ROUND);
+      paint.setColor(0xff1a1527);
+      paint.setStrokeWidth(cell * .09f);
+      canvas.drawPath(outline, paint);
+      paint.setColor(arrow.color);
+      paint.setStrokeWidth(cell * .037f);
+      canvas.drawPath(outline, paint);
+      paint.setStyle(Paint.Style.FILL);
+      float cx = (x + endX) / 2, cy = (y + endY) / 2;
+      paint.setTypeface(Typeface.DEFAULT_BOLD);
+      paint.setTextSize(Math.max(11, cell * .22f));
+      float halfWidth = paint.measureText(arrow.gain) / 2 + cell * .12f;
+      float halfHeight = paint.getTextSize() * .68f;
+      paint.setColor(0xff1a1527);
+      canvas.drawRoundRect(cx - halfWidth, cy - halfHeight, cx + halfWidth, cy + halfHeight, 4, 4, paint);
+      paint.setColor(0xfff8f4ff);
+      canvas.drawText(arrow.gain, cx - paint.measureText(arrow.gain) / 2,
+          cy - (paint.ascent() + paint.descent()) / 2, paint);
+      return;
+    }
     float neckX = endX - dx * cell * .30f, neckY = endY - dy * cell * .30f;
     float spread = cell * .16f;
     paint.setColor(arrow.color);

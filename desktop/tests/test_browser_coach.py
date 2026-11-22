@@ -16,9 +16,12 @@ def test_browser_coach_keeps_current_moves_and_can_run_without_overlays(qt):
     window.browser_reader = reader
     try:
         board = window.tracker.board
+        window.recommendation_preset(5)
+        candidates = ['e2e4', 'd2d4', 'c2c4', 'g1f3', 'b1c3']
         result = summarize(board, [
-            {'pv': [chess.Move.from_uci('e2e4'), chess.Move.from_uci('e7e5')],
+            {'pv': [chess.Move.from_uci(move), chess.Move.from_uci('e7e5')],
              'score': chess.engine.PovScore(chess.engine.Cp(20), chess.WHITE)}
+            for move in candidates
         ], 'Coach test engine')
         window.result = result
         identity = 'browser:qa:0'
@@ -31,7 +34,7 @@ def test_browser_coach_keeps_current_moves_and_can_run_without_overlays(qt):
         window.publish_reader_hints()
         hint = reader.hints[identity]
         assert hint['arrows'] == [] and hint['evaluation'] is None
-        assert hint['coach']['moves'][0]['san'] == 'e4'
+        assert [move['san'] for move in hint['coach']['moves']] == ['e4', 'd4', 'c4', 'Nf3', 'Nc3']
         assert hint['coach']['moves'][0]['reply_simple']
         assert hint['coach']['engine'] == 'Coach test engine'
 

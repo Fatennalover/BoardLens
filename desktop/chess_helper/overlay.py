@@ -5,8 +5,10 @@ import math
 import os
 import sys
 
+import chess
+
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPainterPathStroker, QPen, QPolygonF
+from PySide6.QtGui import QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPainterPathStroker, QPen, QPolygonF
 from PySide6.QtWidgets import QWidget
 
 from .core import square_to_cell
@@ -78,24 +80,96 @@ def paint_arrows(painter, rect, white_bottom, arrows, overlap_color=DEFAULT_OVER
                          Qt.AlignmentFlag.AlignCenter, label)
 
 
+def mark_rect(rect, white_bottom, mark):
+    cell = rect.width() / 8
+    square = mark["square"]
+    point = (mark.get("points") or {}).get(square)
+    if point:
+        x = rect.x() + point[0] * rect.width() - cell / 2
+        y = rect.y() + point[1] * rect.height() - cell / 2
+    else:
+        row, col = square_to_cell(square, white_bottom)
+        x, y = rect.x() + col * cell, rect.y() + row * cell
+    return QRectF(x, y, cell, cell)
+
+
 def paint_marks(painter, rect, white_bottom, marks):
-    """Small translucent targets; projected boards use their square centers."""
-    cell=rect.width()/8
     painter.save()
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     for mark in marks:
-        row,col=square_to_cell(mark['square'],white_bottom)
-        center=QPointF(rect.x()+(col+.5)*cell,rect.y()+(row+.5)*cell)
-        points=mark.get('points') or {}
-        if mark['square'] in points:
-            x,y=points[mark['square']];center=QPointF(rect.x()+x*rect.width(),rect.y()+y*rect.height())
-        color=QColor(mark['color']);color.setAlpha(65 if mark['kind']=='attack' else 105)
-        painter.setBrush(color);painter.setPen(Qt.PenStyle.NoPen)
-        radius=cell*(.12 if mark['kind']=='attack' else .36)
-        painter.drawEllipse(center,radius,radius)
-        if mark['kind']!='attack':
-            color.setAlpha(225);painter.setPen(QPen(color,max(2,cell*.035)));painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawEllipse(center,radius,radius)
+        kind = mark["kind"]
+        if kind == "gain_arrow":
+            continue
+        square = mark_rect(rect, white_bottom, mark)
+        cell = square.width()
+        color = QColor(mark["color"])
+        if kind != "attack":
+            wash = QColor(color)
+            wash.setAlpha(44 if kind == "mate" else 32)
+            painter.fillRect(square, wash)
+        radius = max(2.2, cell * (.048 if kind == "attack" else .068))
+        center = square.bottomRight() - QPointF(cell * .13, cell * .13)
+        painter.setPen(QPen(QColor("#21192d"), max(.8, cell * .015)))
+        painter.setBrush(color)
+        if kind == "mate":
+            painter.drawPolygon(QPolygonF([center + offset for offset in (
+                QPointF(0, -radius), QPointF(radius, 0), QPointF(0, radius), QPointF(-radius, 0)
+            )]))
+        else:
+            painter.drawEllipse(center, radius, radius)
+    painter.restore()
+
+
+def paint_gain_arrows(painter, rect, white_bottom, marks):
+    painter.save()
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    badges = []
+    for mark in marks:
+        if mark["kind"] != "gain_arrow":
+            continue
+        move = chess.Move.from_uci(mark["move"])
+        target = mark_rect(rect, white_bottom, mark)
+        origin = mark_rect(rect, white_bottom, dict(mark, square=move.from_square))
+        cell = target.width()
+        start, end = origin.center(), target.center()
+        delta = end - start
+        length = math.hypot(delta.x(), delta.y())
+        if not length:
+            continue
+        unit = delta / length
+        perpendicular = QPointF(-unit.y(), unit.x())
+        point = end - unit * cell * .11
+        stem = start + unit * cell * .18
+        tail = point - unit * cell * .21
+        half_head = perpendicular * cell * .125
+        shape = QPainterPath(stem)
+        shape.lineTo(tail)
+        shape.moveTo(tail + half_head)
+        shape.lineTo(point)
+        shape.lineTo(tail - half_head)
+
+        color = QColor(mark["color"])
+        stroke = max(1.6, cell * .032)
+        border = QColor("#1a1527")
+        for ink, width in ((border, stroke + 2.4), (color, stroke)):
+            painter.setPen(QPen(ink, width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+            painter.drawPath(shape)
+        badges.append((stem + (point - stem) * .56, cell, mark["label"], color, border))
+
+    for center, cell, label, color, border in badges:
+        font = QFont("Arial")
+        font.setBold(True)
+        font.setPixelSize(max(9, min(17, round(cell * .19))))
+        painter.setFont(font)
+        metrics = QFontMetricsF(font)
+        width = metrics.horizontalAdvance(label) + max(12, cell * .27)
+        height = max(13, metrics.height() + 3)
+        badge = QRectF(center.x() - width / 2, center.y() - height / 2, width, height)
+        painter.setPen(QPen(color, max(1, cell * .02)))
+        painter.setBrush(border)
+        painter.drawRoundedRect(badge, height * .31, height * .31)
+        painter.setPen(QColor("#f8f4ff"))
+        painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, label)
     painter.restore()
 
 
@@ -203,3 +277,4 @@ class BoardOverlay(QWidget):
         painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
         paint_marks(painter,QRectF(self.rect()),self.white_bottom,self.marks)
         paint_arrows(painter, QRectF(self.rect()), self.white_bottom, self.arrows, self.overlap_color)
+        paint_gain_arrows(painter, QRectF(self.rect()), self.white_bottom, self.marks)

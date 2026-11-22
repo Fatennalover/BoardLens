@@ -2,6 +2,7 @@
 import math
 from PySide6.QtCore import QRect, QRectF, Qt, QVariantAnimation, QEasingCurve, Signal
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPainterPath, QGuiApplication
+from .core import evaluation_text
 from .overlay import BoardOverlay
 
 
@@ -21,6 +22,7 @@ class EvaluationOverlay(BoardOverlay):
     def __init__(self):
         super().__init__()
         self.fraction=.5;self.target=.5;self.label='—';self.enabled=False
+        self._score=(None,None,None)
         self.scale=1.;self.user_rect=None;self._drag=None;self._score_interactive=False
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents,False)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowTransparentForInput)
@@ -45,12 +47,15 @@ class EvaluationOverlay(BoardOverlay):
         else:rect=panel_rect(board,safe)
         if not self._drag:self.setGeometry(rect)
         value=self.target
-        if white_share is not None:
-            value=white_share;self.label=f"{white_share:.0%}"
-        if cp is not None:
-            value=1/(1+math.exp(-max(-1200,min(1200,cp))/220))
-            self.label=('1–0' if cp>0 else '0–1') if abs(cp)>=100000 else f'{cp/100:+.2f}' if abs(cp)<1000 else f'{cp/100:+.1f}'
-        if mate is not None:value=.99 if mate>0 else .01;self.label=f'{"+" if mate>0 else "−"}M{abs(mate)}'
+        if white_share is not None:value=white_share
+        if cp is not None:value=1/(1+math.exp(-max(-1200,min(1200,cp))/220))
+        if mate is not None:value=.99 if mate>0 else .01
+        if cp is not None or mate is not None or white_share is not None:
+            self._score=(cp,mate,white_share)
+        self.label=evaluation_text(*self._score,white_bottom=white_bottom)
+        side="White" if white_bottom else "Black"
+        self.setAccessibleName(f"Evaluation for {side}: {self.label}")
+        self.setToolTip(f"{side} perspective. Drag to move or resize from the lower-right corner.")
         if value!=self.target:
             self.animation.stop();self.target=value
             self.animation.setStartValue(self.fraction);self.animation.setEndValue(value);self.animation.start()

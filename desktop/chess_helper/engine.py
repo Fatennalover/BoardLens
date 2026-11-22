@@ -191,16 +191,21 @@ class EngineJob:
                 self.analysis = analysis
                 if self.cancelled.is_set():
                     analysis.stop()
-            last_update=0
+            can_stream = (self.on_update and not limited and not human and not flounder
+                          and settings.style in ('Balanced', 'Maximum strength'))
+            last_update = None
             for info in analysis:
-                now=time.monotonic()
-                if (self.on_update and not limited and not human and not flounder and settings.style in ('Balanced','Maximum strength') and info.get('multipv',1)==1 and info.get('depth',0)>=8
-                        and now-last_update>=.08 and not self.cancelled.is_set()):
-                    infos=[dict(i) for i in analysis.multipv if i.get('pv') and 'score' in i
-                           and not i.get('lowerbound') and not i.get('upperbound')]
-                    if infos:
-                        self.on_update(summarize(board,infos,engine.id.get('name','UCI engine')))
-                        last_update=now
+                if not can_stream or info.get('multipv', 1) != count or self.cancelled.is_set():
+                    continue
+                now = time.monotonic()
+                if last_update is not None and now - last_update < .08:
+                    continue
+                infos = [dict(line) for line in analysis.multipv[:settings.multipv]
+                         if line.get('pv') and 'score' in line
+                         and not line.get('lowerbound') and not line.get('upperbound')]
+                if len(infos) == min(settings.multipv, count):
+                    self.on_update(summarize(board, infos, engine.id.get('name', 'UCI engine')))
+                    last_update = now
             lines = list(analysis.multipv)
             selected=analysis.wait().move
             with self.lock:
@@ -276,10 +281,12 @@ def summarize(board, infos, engine_name,allow_unscored=False):
             reply = reply_board.san(pv[1]) + " — " + describe_move(reply_board, pv[1])
         wdl = info.get("wdl")
         wdl_text = ""
+        expected_score = None
         if wdl:
             values = wdl.white()
             total = sum(values)
             if total:
+                expected_score = (values.wins + values.draws / 2) / total
                 wdl_text = f"White win {values.wins/total:.0%} · draw {values.draws/total:.0%} · Black win {values.losses/total:.0%}"
         lines.append({"move": pv[0].uci(), "san": board.san(pv[0]), "cp": cp, "mate": mate,
                       "score": (f"M{abs(mate)} {'White' if mate > 0 else 'Black'}" if mate is not None else f"{cp/100:+.2f}" if cp is not None else "—"),
@@ -291,7 +298,7 @@ def summarize(board, infos, engine_name,allow_unscored=False):
                       "simple": simple_move(board,pv[0]),
                       "reply_simple": simple_move(reply_board,pv[1]) if len(pv)>1 else "",
                       "insights": move_insights(board, pv[0]),
-                      "advantage": advantage(cp, mate) if cp is not None else "This bot does not provide an evaluation", "wdl": wdl_text})
+                      "advantage": advantage(cp, mate) if cp is not None else "This bot does not provide an evaluation", "wdl": wdl_text, "expected_score": expected_score})
     if not lines:
         raise ValueError("The engine returned no move. Try a longer thinking time.")
     return {"fen": board.fen(), "engine": engine_name, "lines": lines}

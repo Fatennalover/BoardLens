@@ -742,6 +742,7 @@ public final class ScreenService extends Service {
         && !finished
         && !lastArrows.isEmpty()
         && displayedFen.equals(result.fen())
+        && result.lines().size() <= lastArrows.size()
         && !displayedMove.equals(first.move())) return;
     displayedFen = result.fen();
     displayedMove = first.move();
@@ -760,7 +761,7 @@ public final class ScreenService extends Service {
       }
       if(!board.legal().contains(line.move()))continue;
       text.append(++rank).append(". ").append(board.simple(line.move())).append('\n');
-      arrows.add(line.move());arrowColors.add(rank==1?android.graphics.Color.parseColor(settings.mainColor()):0xffb0a4ff);
+      arrows.add(line.move());arrowColors.add(android.graphics.Color.parseColor(settings.arrowColor(rank - 1)));
       if (rank == 1 && settings.predict() && settings.predictionPlies()>1 && line.pv().size() > 1) {
         ChessPosition next = board.play(line.move());
         String reply = line.pv().get(1);
@@ -772,10 +773,6 @@ public final class ScreenService extends Service {
             text.append("Then: ").append(next.simple(line.pv().get(2))).append('\n');
         }
       }
-    }
-    if (settings.steady() && !finished && !lastArrows.isEmpty()) {
-      arrows.clear();
-      arrows.addAll(lastArrows);arrowColors=new ArrayList<>(lastArrowColors);
     }
     if(token!=generation.get()||!running)return;
     lastArrows = new ArrayList<>(arrows);lastArrowColors=List.copyOf(arrowColors);

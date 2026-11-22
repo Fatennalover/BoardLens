@@ -211,6 +211,21 @@ def simple_move(board,move):
     return text
 
 
+def evaluation_text(cp=None, mate=None, white_share=None, *, white_bottom=True):
+    """Format a White-based engine score for the side at the bottom."""
+    direction = 1 if white_bottom else -1
+    if mate is not None:
+        return f"{'+' if mate * direction > 0 else '−'}M{abs(mate)}"
+    if cp is not None:
+        if abs(cp) >= 100000:
+            return "1–0" if cp > 0 else "0–1"
+        pawns = cp * direction / 100
+        return f"{pawns:+.2f}" if abs(cp) < 1000 else f"{pawns:+.1f}"
+    if white_share is not None:
+        return f"{white_share if white_bottom else 1 - white_share:.0%}"
+    return "—"
+
+
 def advantage(cp, mate=None):
     if mate is not None:
         return f"{'White' if mate > 0 else 'Black'} has a forced mate in {abs(mate)}"

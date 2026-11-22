@@ -5,13 +5,13 @@ from pathlib import Path
 
 import chess
 from PySide6.QtCore import QPointF, QRect, QRectF, QSize, Qt, Signal, QVariantAnimation, QEasingCurve
-from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPolygonF, QPixmap
+from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QPolygonF, QPixmap
 from PySide6.QtWidgets import QDialog, QLabel, QVBoxLayout, QWidget, QSizePolicy
 from PySide6.QtSvg import QSvgRenderer
 
 from .capture import bgr_pixmap
-from .core import cell_to_square, square_to_cell
-from .overlay import DEFAULT_OVERLAP_COLOR, paint_arrows, paint_marks
+from .core import cell_to_square, evaluation_text, square_to_cell
+from .overlay import DEFAULT_OVERLAP_COLOR, paint_arrows, paint_marks, paint_gain_arrows
 
 
 class BoardView(QWidget):
@@ -135,6 +135,7 @@ class BoardView(QWidget):
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(QColor("#f6ba43"))
             p.drawPolygon(QPolygonF(points))
+        paint_gain_arrows(p, rect, self.white_bottom, self.marks)
 
     def mousePressEvent(self, event):
         rect = self.board_rect()
@@ -162,8 +163,7 @@ class EvalBar(QWidget):
         self._animation.valueChanged.connect(self._animate)
         self.score_label=QLabel("—",self)
         self.score_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.score_label.setStyleSheet("background:#493960;color:white;border-radius:5px;font-size:14px;font-weight:700;padding:0;")
-        self.setToolTip("White's evaluation: + favors White; − favors Black. The bar shows a score, not a winning percentage.")
+        self.score_label.setStyleSheet("background:transparent;color:#f4ecff;font-size:14px;font-weight:700;")
 
     def _animate(self, value):
         self._fraction = float(value)
@@ -187,30 +187,32 @@ class EvalBar(QWidget):
         super().update(*args)
 
     def score_text(self):
-        if self.white_share is not None:return f"{self.white_share:.0%}"
-        if self.mate is not None:return f"{'+' if self.mate>0 else '−'}M{abs(self.mate)}"
-        if self.cp is None:return "—"
-        if abs(self.cp)>=100000:return "1–0" if self.cp>0 else "0–1"
-        return f"{self.cp/100:+.2f}" if abs(self.cp)<1000 else f"{self.cp/100:+.1f}"
+        return evaluation_text(self.cp, self.mate, self.white_share, white_bottom=self.white_bottom)
 
     def resizeEvent(self,event):
         super().resizeEvent(event)
-        self.score_label.setGeometry(0,max(0,(self.height()-34)//2),self.width(),34)
+        self.score_label.setGeometry(0, 0, self.width(), 24)
 
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        rect = QRectF(10, 1, max(1,self.width() - 20), max(1,self.height() - 2))
-        fraction = self._fraction
-        p.fillRect(rect, QColor("#261d36"))
-        white_height = rect.height() * fraction
-        white_rect = QRectF(rect.x(), rect.bottom() - white_height if self.white_bottom else rect.y(), rect.width(), white_height)
+        rect = QRectF((self.width() - 22) / 2, 30, 22, max(1, self.height() - 31))
+        track = QPainterPath()
+        track.addRoundedRect(rect, 4, 4)
+        p.save()
+        p.setClipPath(track)
+        p.fillRect(rect, QColor("#352848"))
+        white_height = rect.height() * self._fraction
+        white_rect = QRectF(rect.x(), rect.bottom() - white_height if self.white_bottom else rect.y(),
+                            rect.width(), white_height)
         p.fillRect(white_rect, QColor("#f4ecff"))
-        p.setPen(QPen(QColor("#8673a2"), 1))
-        p.drawRect(rect)
+        p.restore()
+        p.strokePath(track, QPen(QColor("#6c588a"), 1))
         text=self.score_text()
         self.score_label.setText(text)
-        self.setAccessibleName("Evaluation for White: "+text)
+        side = "White" if self.white_bottom else "Black"
+        self.setAccessibleName(f"Evaluation for {side}: {text}")
+        self.setToolTip(f"{side} perspective. Positive favors {side}, the side at the bottom.")
 
 
 class BoardArea(QWidget):
