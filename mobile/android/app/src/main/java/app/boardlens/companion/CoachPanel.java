@@ -105,6 +105,12 @@ final class CoachPanel implements AutoCloseable {
             render();
             return;
         }
+        if (!EngineCatalog.ready(activity, settings.engine())) {
+            error = "Install " + EngineCatalog.get(settings.engine()).name()
+                    + " in Engine library, or choose an installed engine in Coach settings.";
+            render();
+            return;
+        }
         PhoneSettings configuration = settings.snapshot().override(Map.of(
                 "moves", settings.p.getInt("moves", 3),
                 "prediction_plies", settings.p.getInt("prediction_plies", 2),
