@@ -60,7 +60,7 @@ class PassivePanel:
                overlap_color=DEFAULT_OVERLAP_COLOR):
         marks=marks or []
         signature = (geometry.getRect(), scale, white_bottom, overlap_color,
-                     tuple((a['move'].uci(), a['color'], a.get('label'), a.get('reply'),a.get('dashed'),tuple(sorted((a.get('points') or {}).items()))) for a in arrows),
+                     tuple((a['move'].uci(), a['color'], a.get('label'), a.get('reply'),a.get('dashed'),a.get('preview'),tuple(sorted((a.get('points') or {}).items()))) for a in arrows),
                      tuple((m['square'],m['color'],m['kind'],m.get('move'),m.get('label'),tuple(sorted((m.get('points') or {}).items()))) for m in marks))
         if signature != self.signature:
             from .overlay import paint_arrows, paint_marks, paint_gain_arrows

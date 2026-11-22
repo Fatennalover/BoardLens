@@ -5,7 +5,7 @@ from html import escape
 from concurrent.futures import Future
 from copy import deepcopy
 import chess,chess.svg,cv2,numpy as np
-from PySide6.QtCore import QObject,QTimer,Signal
+from PySide6.QtCore import QObject,QPointF,QRectF,QTimer,Signal
 from PySide6.QtWidgets import QApplication
 from .core import evaluation_text, square_to_cell
 from .phone_server import PhoneServer,local_addresses
@@ -13,9 +13,10 @@ from .recognition import position_from_read
 from .engine_config import configuration
 from . import __version__, engine_library, engine_profiles
 from .openings import opening_name, played_moves
+from .overlay import score_arrow_points, score_badge_points, space_score_badge
 
 NUMBERS={'advantage_seconds':'Scoring time (seconds)','advantage_depth':'Scoring depth','advantage_count':'Moves to compare (0 off)','prediction_plies':'Prediction length (plies)','prediction_seconds':'Reply time budget (seconds)','eval_seconds':'Evaluation think time','eval_depth':'Evaluation depth cap','eval_human_elo':'Evaluation human rating','seconds':'Think time (seconds)','depth':'Search depth','multipv':'Recommendation arrows','threads':'CPU threads per board','hash_mb':'Hash memory (MB)','arrow_count':'Arrow candidates','engine_skill':'Stockfish skill (0–20)','engine_elo':'Stockfish Elo','human_elo':'Maia target human rating'}
-BOOLEANS={'advantage_gain_arrows':'Gain arrows','browser_eval_enabled':'Browser evaluation','screen_eval_enabled':'Screen evaluation','predict_continuations':'Predict opponent and my next move','only_my_color':'Only my color','stick_to_move':'Stick to one move','overlay_enabled':'Computer screen arrows','arrow_labels':'Arrow rank labels','show_white':'White suggestions','show_black':'Black suggestions','show_reply':'Opponent best reply','rank_best':'Show #1','rank_second':'Show #2','rank_others':'Show #3 and later','early_suggestions':'Show moves while thinking','global_keys':'Global keyboard shortcuts','always_top':'Desktop stays on top','steady_arrows':'Steady arrows · keep calculating','dashed_reply':'Dashed opponent reply arrow (desktop)'}
+BOOLEANS={'advantage_gain_arrows':'Score arrows','advantage_positive_only':'Gains only','browser_eval_enabled':'Browser evaluation','screen_eval_enabled':'Screen evaluation','predict_continuations':'Predict opponent and my next move','only_my_color':'Only my color','stick_to_move':'Stick to one move','overlay_enabled':'Computer screen arrows','arrow_labels':'Arrow rank labels','show_white':'White suggestions','show_black':'Black suggestions','show_reply':'Opponent best reply','rank_best':'Show #1','rank_second':'Show #2','rank_others':'Show #3 and later','early_suggestions':'Show moves while thinking','global_keys':'Global keyboard shortcuts','always_top':'Desktop stays on top','steady_arrows':'Steady arrows · keep calculating','dashed_reply':'Dashed opponent reply arrow (desktop)'}
 ENUMS={'advantage_mode':'Scoring search limit','advantage_engine':'Scoring engine','eval_engine':'Evaluation engine','mode':'Engine limit','source':'Board source','orientation':'Board orientation','turn':'Primary board turn','monitor':'Monitor to scan','engine_kind':'Analysis engine · choose manually','strength_mode':'Stockfish strength mode','playing_style':'Playing style','compare_a':'Compare engine A','compare_b':'Compare engine B','compare_c':'Compare engine C'}
 ENUMS.update(source='Read from',turn='Side to move',monitor='Display to read')
 BOOLEANS.update(auto_updates='Automatic desktop updates',threats_enabled='Threat highlights',threat_attacks='Attacked squares',threat_mates='Mate-in-one targets',lock_target='Lock target board')
@@ -26,28 +27,28 @@ def gain_svg(gains, bottom):
     """Draw the same outlined gains on the portable SVG board."""
     def point(square):
         row, col = square_to_cell(square, bottom)
-        return 15 + (col + .5) * 45, 15 + (row + .5) * 45
+        return QPointF(15 + (col + .5) * 45, 15 + (row + .5) * 45)
 
-    paths, badges = [], []
+    def polygon(points):
+        return " ".join(f"{point.x():.2f},{point.y():.2f}" for point in points)
+
+    paths, badges, occupied = [], [], []
     for gain in gains:
         move = chess.Move.from_uci(gain['move'])
-        x, y = point(move.from_square)
-        tx, ty = point(move.to_square)
-        length = math.hypot(tx - x, ty - y)
-        dx, dy = (tx - x) / length, (ty - y) / length
-        nx, ny = tx - 10 * dx, ty - 10 * dy
-        shape = (f"M{x} {y}L{nx} {ny} M{nx-6*dy} {ny+6*dx}"
-                 f"L{tx} {ty}L{nx+6*dy} {ny-6*dx}")
+        origin, destination = point(move.from_square), point(move.to_square)
+        stem, tail, head, center = score_arrow_points(origin, destination, 45)
         color, label = escape(gain['color']), escape(gain['label'])
-        dark = '#1a1527'
-        for ink, width in ((dark, 4), (color, 1.7)):
-            paths.append(f'<path d="{shape}" fill="none" stroke="{ink}" stroke-width="{width}" stroke-linecap="round"/>')
-        cx, cy = (x + tx) / 2, (y + ty) / 2
-        width = max(28, len(label) * 5 + 9)
-        badges.append(f'<rect x="{cx-width/2}" y="{cy-7}" width="{width}" height="14" '
-                      f'rx="4" fill="{dark}" stroke="{color}"/><text x="{cx}" y="{cy+3.2}" '
-                      f'text-anchor="middle" font-family="system-ui" font-size="10" font-weight="700" '
-                      f'fill="#f8f4ff">{label}</text>')
+        dark = '#14121e'
+        coords = f'x1="{stem.x()}" y1="{stem.y()}" x2="{tail.x()}" y2="{tail.y()}"'
+        for ink, width in ((dark, 4.4), (color, 2)):
+            paths.append(f'<line {coords} stroke="{ink}" stroke-width="{width}" stroke-dasharray="5.2 4"/>')
+        paths.append(f'<polygon points="{polygon(head)}" fill="{dark}" stroke="{color}" stroke-width="2"/>')
+        width = max(26, len(label) * 6.4 + 12)
+        center = space_score_badge(center, destination - origin, width, 17, occupied, QRectF(15, 15, 360, 360))
+        tag = score_badge_points(center, width, 17)
+        badges.append(f'<polygon points="{polygon(tag)}" fill="{dark}" stroke="{color}" stroke-width="1.3"/>'
+                      f'<text x="{center.x()}" y="{center.y()+3.8}" text-anchor="middle" '
+                      f'font-family="system-ui" font-size="11" font-weight="700" fill="#ffffff">{label}</text>')
     return ''.join(paths + badges)
 
 

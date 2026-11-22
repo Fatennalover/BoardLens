@@ -81,7 +81,7 @@
  }
  const labelMetrics=document.createElement('canvas').getContext('2d');
  function markLayers(board, marks){
-  const highlights=[],arrows=[],badges=[];
+  const highlights=[],arrows=[],badges=[],occupied=[];
   const {rect,points}=board,cell=rect.width/8;
   function center(square){
    const value=points[square];
@@ -108,25 +108,38 @@
    const [sx,sy]=origin,distance=Math.hypot(x-sx,y-sy);
    if(!distance)continue;
    const ux=(x-sx)/distance,uy=(y-sy)/distance;
-   const startX=sx+ux*cell*.18,startY=sy+uy*cell*.18;
-   const tipX=x-ux*cell*.11,tipY=y-uy*cell*.11;
-   const tailX=tipX-ux*cell*.21,tailY=tipY-uy*cell*.21;
-   const wx=-uy*cell*.125,wy=ux*cell*.125;
-   const d=`M ${startX} ${startY} L ${tailX} ${tailY} M ${tailX+wx} ${tailY+wy} L ${tipX} ${tipY} L ${tailX-wx} ${tailY-wy}`;
-   const outline='#1a1527',stroke=Math.max(1.6,cell*.032);
-   const path={d,fill:'none','stroke-linecap':'round','stroke-linejoin':'round'};
-   arrows.push(svg('path',{...path,stroke:outline,'stroke-width':stroke+2.4}));
-   arrows.push(svg('path',{...path,stroke:mark.color,'stroke-width':stroke}));
+   const startX=sx+ux*cell*.16,startY=sy+uy*cell*.16;
+   const tipX=x-ux*cell*.10,tipY=y-uy*cell*.10;
+   const tailX=tipX-ux*cell*.27,tailY=tipY-uy*cell*.27;
+   const wx=-uy*cell*.15,wy=ux*cell*.15;
+   const dark='#14121e',stroke=Math.max(2,cell*.044);
+   const stem={x1:startX,y1:startY,x2:tailX,y2:tailY,'stroke-dasharray':`${cell*.115} ${cell*.09}`};
+   arrows.push(svg('line',{...stem,stroke:dark,'stroke-width':stroke+2.4}));
+   arrows.push(svg('line',{...stem,stroke:mark.color,'stroke-width':stroke}));
+   const head=`${tipX},${tipY} ${tailX+wx},${tailY+wy} ${tailX+ux*cell*.08},${tailY+uy*cell*.08} ${tailX-wx},${tailY-wy}`;
+   arrows.push(svg('polygon',{points:head,fill:dark,stroke:mark.color,'stroke-width':stroke,'stroke-linejoin':'round'}));
 
-   const cx=startX+(tipX-startX)*.56,cy=startY+(tipY-startY)*.56;
-   const fontSize=Math.max(9,Math.min(17,Math.round(cell*.19)));
+   let cx=sx+(x-sx)*.64,cy=sy+(y-sy)*.64;
+   const fontSize=Math.max(11,Math.min(22,Math.round(cell*.23)));
    labelMetrics.font=`700 ${fontSize}px system-ui`;
-   const width=labelMetrics.measureText(mark.label).width+Math.max(12,cell*.27);
-   const height=Math.max(13,fontSize*1.32+3);
+   const width=labelMetrics.measureText(mark.label).width+Math.max(13,cell*.22);
+   const height=Math.max(16,fontSize*1.26+4);
+   const halfWidth=width/2+height*.25+1,halfHeight=height/2+1;
+   placeBadge: for(const offset of [0,.8,-.8,1.4,-1.4]){
+    for(const shift of [0,-.20,.14,-.37]){
+     const bx=cx+(x-sx)*shift-uy*height*offset,by=cy+(y-sy)*shift+ux*height*offset;
+     if(bx-halfWidth<rect.x||bx+halfWidth>rect.x+rect.width||by-halfHeight<rect.y||by+halfHeight>rect.y+rect.height)continue;
+     if(occupied.some(([px,py,hw,hh])=>Math.abs(bx-px)<halfWidth+hw&&Math.abs(by-py)<halfHeight+hh))continue;
+     cx=bx;cy=by;
+     occupied.push([bx,by,halfWidth,halfHeight]);
+     break placeBadge;
+    }
+   }
+   const left=cx-width/2,right=cx+width/2,top=cy-height/2,bottom=cy+height/2,notch=height*.25;
    const badge=svg('g',{'data-gain-move':mark.move});
-   badge.append(svg('rect',{x:cx-width/2,y:cy-height/2,width,height,rx:height*.31,fill:outline,
-    stroke:mark.color,'stroke-width':Math.max(1,cell*.02)}));
-   const label=svg('text',{x:cx,y:cy,fill:'#f8f4ff','text-anchor':'middle',
+   const badgeShape=`${left},${top} ${right},${top} ${right+notch},${cy} ${right},${bottom} ${left},${bottom} ${left-notch},${cy}`;
+   badge.append(svg('polygon',{points:badgeShape,fill:dark,stroke:mark.color,'stroke-width':Math.max(1.3,cell*.025)}));
+   const label=svg('text',{x:cx,y:cy,fill:'#ffffff','text-anchor':'middle',
     'dominant-baseline':'central','font-family':'system-ui','font-size':fontSize,'font-weight':700});
    label.textContent=mark.label;
    badge.append(label);
@@ -134,8 +147,17 @@
   }
   return {highlights,gains:[...arrows,...badges]};
  }
+ function sharesShaft(start,end,other,cell){
+  const length=Math.hypot(end[0]-start[0],end[1]-start[1]);
+  if(!length)return false;
+  const ux=(end[0]-start[0])/length,uy=(end[1]-start[1])/length;
+  const offsets=[other.start,other.end].map(([x,y])=>[x-start[0],y-start[1]]);
+  if(offsets.some(([x,y])=>Math.abs(x*uy-y*ux)>cell*.015))return false;
+  const values=offsets.map(([x,y])=>x*ux+y*uy);
+  return Math.min(length,Math.max(...values))-Math.max(0,Math.min(...values))>cell*.16;
+ }
  function arrowLayers(board,hint){
-  const definitions=svg('defs',{}),base=[],overlaps=[],ids=[];
+  const definitions=svg('defs',{}),base=[],overlaps=[],shafts=[];
   const r=board.rect,head=Math.max(10,r.width/28),width=Math.max(4,r.width/85);
   const overlapColor=/^#[0-9a-f]{6}$/i.test(hint.overlap_color||'')?hint.overlap_color:'#a855f7';
   for(const arrow of hint.arrows||[]){
@@ -144,21 +166,22 @@
    const start=[r.x+from[0]*r.width,r.y+from[1]*r.height];
    const end=[r.x+to[0]*r.width,r.y+to[1]*r.height];
    const angle=Math.atan2(end[1]-start[1],end[0]-start[0]);
-   const id=`boardlens-arrow-${board.index}-${ids.length}`;
+   const id=`boardlens-arrow-${board.index}-${shafts.length}`;
    const shape=svg('g',{id});
    const line=svg('path',{d:`M ${start.join(' ')} L ${end.join(' ')}`,stroke:'currentColor','stroke-width':width,'stroke-linecap':'round',fill:'none'});
    if(arrow.dashed)line.setAttribute('stroke-dasharray',width*1.6+' '+width);
    const tip=svg('path',{d:`M ${end.join(' ')} L ${end[0]-head*Math.cos(angle-.5)} ${end[1]-head*Math.sin(angle-.5)} L ${end[0]-head*Math.cos(angle+.5)} ${end[1]-head*Math.sin(angle+.5)} Z`,fill:'currentColor'});
    shape.append(line,tip);definitions.append(shape);
    base.push(svg('use',{href:'#'+id,color:arrow.color,opacity:'.85'}));
-   if(ids.length){
+   const shared=shafts.filter(other=>sharesShaft(start,end,other,r.width/8));
+   if(shared.length){
     const maskId=id+'-overlap';
     const mask=svg('mask',{id:maskId,maskUnits:'userSpaceOnUse',x:r.x,y:r.y,width:r.width,height:r.height});
-    for(const previous of ids)mask.append(svg('use',{href:'#'+previous,color:'#ffffff'}));
+    for(const previous of shared)mask.append(svg('use',{href:'#'+previous.id,color:'#ffffff'}));
     definitions.append(mask);
     overlaps.push(svg('use',{href:'#'+id,color:overlapColor,mask:`url(#${maskId})`}));
    }
-   ids.push(id);
+   shafts.push({id,start,end});
   }
   return base.length?[definitions,...base,...overlaps]:[];
  }
@@ -222,6 +245,9 @@
    if(String(error).includes('context invalidated')){
     notice.textContent='BoardLens: reload this chess tab to reconnect the reader.';
     notice.hidden=false;
+    clearArrows();clearEvaluations();boardLensCoach.clear();
+    pending=null;
+    return;
    }
    if(Date.now()-last>1500){clearArrows();clearEvaluations();boardLensCoach.clear()}
   }finally{
@@ -233,14 +259,18 @@
    }
   }
  }
- function releaseBoard(){
+ async function releaseBoard(){
   view++;
   pending=null;
   lastRequested='';
   clearArrows();
   clearEvaluations();
   boardLensCoach.clear();
-  chrome.runtime.sendMessage({type:'boards',focused:false,boards:[]}).catch(()=>{});
+  try{
+   await chrome.runtime.sendMessage({type:'boards',focused:false,boards:[]});
+  }catch{
+   // Chrome can invalidate this tab's reader when the extension reloads.
+  }
  }
  window.addEventListener('blur',releaseBoard);
  window.addEventListener('focus',()=>{view++});

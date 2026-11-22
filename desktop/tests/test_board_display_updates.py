@@ -56,8 +56,10 @@ def test_threat_worker_and_gain_arrows_follow_the_position(qt):
         ]}
         window.update_visuals()
         marks = [m for m in window.board_view.marks if m["kind"] == "gain_arrow"]
-        assert marks == [{"square": chess.D4, "kind": "gain_arrow", "move": "c6d4",
-                          "color": panel.score_color.color, "label": "+0.10"}]
+        assert [(m["move"], m["label"]) for m in marks] == [
+            ("c6d4", "+0.10"), ("e6d4", "-0.02"), ("e8e7", "0.00")]
+        panel.positive_only.setChecked(True)
+        assert [m["label"] for m in panel.marks(board)] == ["+0.10"]
         next_board = board.copy()
         next_board.push_uci("c6d4")
         assert not panel.marks(next_board)
@@ -88,12 +90,15 @@ def test_stockfish_scoring_limits_are_independent_and_saved(qt, monkeypatch):
     window = MainWindow()
     panel = window.move_advantage
     jobs = []
+    durations = []
     run = EngineJob.run
 
     def record_limits(job, command, board, settings):
+        result = run(job, command, board, settings)
         if job.session is panel.session:
             jobs.append((settings.mode, settings.seconds, settings.depth, settings.multipv))
-        return run(job, command, board, settings)
+            durations.append(result["elapsed"])
+        return result
 
     monkeypatch.setattr(EngineJob, "run", record_limits)
     try:
@@ -119,7 +124,10 @@ def test_stockfish_scoring_limits_are_independent_and_saved(qt, monkeypatch):
             pytest.skip("Stockfish missing")
         panel.count.setValue(2)
         wait(qt, lambda: panel.result is not None)
-        assert jobs == [("Time + depth", .2, 8, 1), ("Time + depth", .2, 8, 2)]
+        baseline, comparison = jobs
+        assert baseline == ("Time + depth", pytest.approx(.08), 8, 1)
+        assert comparison[0] == "Time + depth" and comparison[2:] == (8, 2)
+        assert comparison[1] + durations[0] == pytest.approx(.2)
         assert len(panel.result["rows"]) == 2
         assert (window.eval_seconds.value(), window.eval_depth.value()) == (1.2, 24)
         panel.count.setValue(0)
@@ -157,5 +165,44 @@ def test_toolbar_four_arrows_unlock_every_requested_rank(qt):
         arrows = window.board_view.arrows
         assert [arrow['move'] for arrow in arrows] == moves
         assert len({arrow['color'] for arrow in arrows}) == 4
+    finally:
+        window.close()
+
+
+
+def test_predicted_line_is_separate_from_the_current_arrow_count(qt):
+    window = MainWindow()
+    try:
+        window.source.setCurrentIndex(0)
+        window.recommendation_preset(4)
+        window.prediction_plies.setValue(3)
+        board = window.tracker.board
+        moves = [chess.Move.from_uci(uci) for uci in ("e2e4", "e7e5", "g1f3")]
+        result = summarize(board, [{"pv": moves, "score": chess.engine.PovScore(chess.engine.Cp(25), True)}], "QA")
+        window.engine_progress(window.generation, result)
+        assert "Predicted line · 3 turns · e4 → e5 → Nf3" == window.predicted_line.text()
+        assert not window.predicted_line.isHidden()
+        assert window.quick_arrow_count.value() == 4
+        window.set_position(chess.Board("4k3/8/8/8/8/8/P7/4K3 w - - 0 1"))
+        assert window.predicted_line.isHidden()
+    finally:
+        window.close()
+
+
+
+def test_lookahead_board_controls_update_the_reply_budget(qt, monkeypatch):
+    window = MainWindow()
+    try:
+        window.source.setCurrentIndex(0)
+        requests = []
+        monkeypatch.setattr(window, "suggest", lambda: requests.append(window.search_settings()))
+        window.lookahead_count.setValue(5)
+        window.lookahead_budget.setValue(.1)
+        assert window.predict_continuations.isChecked()
+        assert window.prediction_plies.value() == 5
+        assert requests[-1].prediction_seconds == .1
+        window.lookahead_count.setValue(1)
+        assert not window.predict_continuations.isChecked()
+        assert not window.lookahead_budget.isEnabled()
     finally:
         window.close()

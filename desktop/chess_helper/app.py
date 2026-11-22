@@ -21,18 +21,20 @@ from . import engine_profiles
 from . import __version__
 from .toggle import ToggleButton as QCheckBox
 from .capture import BoardRegion, bgr_pixmap, capture, screen_key
+from .coach import CoachPane
+from .coach_engine import CoachAnalysis, CoachSettings
 from .controls import Hotkeys
 from .core import (DEFAULT_KEYS, PositionTracker, SearchSettings, board_from_symbols,
                    can_send_move, data_dir, evaluation_text, find_engine, load_settings, ordered_symbols,
                    save_settings, simple_move, validate_keys)
-from .engine import EngineJob, EngineSession
+from .engine import EngineJob, EngineSession, describe_continuation
 from .live import LiveWorker
 from .multiboard import MultiBoards
 from .phone import PhoneCompanion
 from . import engine_config,engine_library
 from .hints import LiveHintFilter
 from .recognition import Recognizer, position_from_read
-from .overlay import BoardOverlay, DEFAULT_OVERLAP_COLOR
+from .overlay import BoardOverlay, COACH_PREVIEW_COLOR, COACH_REPLY_COLOR, DEFAULT_OVERLAP_COLOR
 from .foreground import foreground_kind
 from .vision import Templates, detect_boards
 from .widgets import BoardView, CropDialog, EvalBar, BoardArea
@@ -234,20 +236,25 @@ class MainWindow(QMainWindow):
             self.splitter.setSizes([670,490])
         self.settings_tabs.show()
         self.board_area.arrange()
+        self.refresh_coach()
 
     def layout_board_toolbar(self):
         grid = self.workspace_toolbar.layout()
+        options = self.analysis_options_bar.layout()
         while grid.count():
             grid.takeAt(0)
         if self._compact:
-            first = (self.suggest_button, self.live_button, self.stop_button)
-            second = (self.quick_source, self.quick_scan_button, self.quick_arrow_count)
-            for column, pair in enumerate(zip(first, second)):
+            options.removeWidget(self.lookahead_button)
+            actions = (self.suggest_button, self.live_button, self.stop_button, self.lookahead_button)
+            for column, button in enumerate(actions):
                 grid.setColumnStretch(column, 1)
-                for row, button in enumerate(pair):
-                    grid.addWidget(button, row, column)
-            grid.setColumnStretch(3, 0)
+                grid.addWidget(button, 0, column)
+            grid.addWidget(self.quick_source, 1, 0)
+            grid.addWidget(self.quick_scan_button, 1, 1)
+            grid.addWidget(self.quick_arrow_count, 1, 2, 1, 2)
         else:
+            if options.indexOf(self.lookahead_button) < 0:
+                options.addWidget(self.lookahead_button, 1)
             controls = (self.quick_source, self.quick_arrow_count, None, self.suggest_button, self.live_button,
                         self.stop_button, self.quick_scan_button)
             for column, button in enumerate(controls):
@@ -383,6 +390,7 @@ class MainWindow(QMainWindow):
         self.board_page_button.setChecked(board_page)
         self.settings_button.setChecked(index == 3)
         self.full_analysis_button.setVisible(board_page and not self._compact)
+        self.refresh_coach()
 
     def open_settings(self):
         if not self._compact:
@@ -413,6 +421,10 @@ class MainWindow(QMainWindow):
     def show_move_advantage(self):
         self.toggle_compact(False)
         self.analysis_tabs.setCurrentWidget(self.move_advantage)
+
+    def show_coach(self):
+        self.user_toggle_compact(False)
+        self.analysis_tabs.setCurrentWidget(self.coach)
 
     def start_live(self, compact=False):
         if self.source.currentIndex() != 1:
@@ -701,6 +713,7 @@ class MainWindow(QMainWindow):
         self.move_advantage.refresh()
         self.invalidate(preserve_eval=True);self.overlay.hide();self.screen_eval.hide()
         self.simple_label.setText('Game ended · '+message)
+        self.predicted_line.hide()
         self.set_analysis_html('<h2>Game ended</h2><p>'+html.escape(message)+'</p><p>Still watching for a new game. Scan now resumes analysis of this board.</p>',fen)
         self.status('Game over · '+message)
 
@@ -756,12 +769,12 @@ class MainWindow(QMainWindow):
         self.quick_source = QComboBox()
         self.quick_source.setAccessibleName("Board source")
         self.quick_arrow_count = QSpinBox()
-        self.quick_arrow_count.setAccessibleName("Recommendation arrow count")
-        self.quick_arrow_count.setToolTip("Set how many color-coded recommendations to show.")
+        self.quick_arrow_count.setAccessibleName("Suggestions for the current turn")
+        self.quick_arrow_count.setToolTip("Choose how many alternative moves to show for the current turn. Use Look ahead to set the length of the predicted line.")
         self.quick_arrow_count.setRange(1, 10)
-        self.quick_arrow_count.setSuffix(" arrows")
-        self.quick_arrow_count.setSpecialValueText("1 arrow")
-        self.quick_arrow_count.setMinimumWidth(114)
+        self.quick_arrow_count.setSuffix(" suggestions")
+        self.quick_arrow_count.setSpecialValueText("1 suggestion")
+        self.quick_arrow_count.setMinimumWidth(168)
         self.quick_arrow_count.setKeyboardTracking(False)
         self.quick_arrow_count.valueChanged.connect(self.recommendation_preset)
         self.always_top = QCheckBox("Stay on top")
@@ -798,10 +811,7 @@ class MainWindow(QMainWindow):
         options.addWidget(self.steady_arrows)
         self.steady_arrows.setToolTip("Keep calculating while filtering out brief changes in the suggested move.")
         self.quick_arrows = self._button("Arrows", lambda enabled: self.overlay_enabled.setChecked(enabled), options, True)
-        self.quick_arrows.setToolTip("Show or hide arrows without stopping analysis.")
         self.quick_arrows.setChecked(True)
-        for index in range(options.count()):
-            options.setStretch(index, 1)
         layout.addWidget(self.analysis_options_bar)
         self.player_label = QLabel("Your color: White · bottom of board")
         self.player_label.setStyleSheet("color:#c6bed9;")
@@ -1012,9 +1022,11 @@ class MainWindow(QMainWindow):
         self.predict_continuations=QCheckBox('Predict opponent and my next move');self.predict_continuations.setChecked(True);self.predict_continuations.toggled.connect(self.prediction_controls_changed);eng.addWidget(self.predict_continuations)
         prediction_form=QFormLayout();prediction_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         self.prediction_plies=QSpinBox();self.prediction_plies.setRange(1,12);self.prediction_plies.setValue(3);self.prediction_plies.setSuffix(' plies')
-        self.prediction_plies.setToolTip('A ply is one move by one side. 3 = your move, opponent reply, your response. This applies to Maia 2, every Maia 3 model, and Tiny bots too.')
+        self.prediction_plies.setToolTip("One move by one side. Three includes the suggested move, the opponent's reply, and your response.")
+        self.prediction_plies.valueChanged.connect(self.sync_lookahead)
         self.prediction_seconds=QDoubleSpinBox();self.prediction_seconds.setRange(.1,60);self.prediction_seconds.setValue(3);self.prediction_seconds.setSingleStep(.5);self.prediction_seconds.setSuffix(' s')
-        self.prediction_seconds.setToolTip('Budget for calculating extra replies after the first recommendation. No artificial wait. A Maia pass already running may finish after this budget.')
+        self.prediction_seconds.setToolTip("Time allowed for extra moves after the initial suggestion. A model prediction already in progress can finish after this budget.")
+        self.prediction_seconds.valueChanged.connect(self.sync_lookahead)
         prediction_form.addRow('Prediction length',self.prediction_plies);prediction_form.addRow('Reply time budget',self.prediction_seconds);eng.addLayout(prediction_form)
         for field in (self.prediction_plies,self.prediction_seconds):field.valueChanged.connect(self.engine_settings_changed)
         refresh_note=QLabel("Screen refresh: 45 ms target.")
@@ -1209,6 +1221,41 @@ class MainWindow(QMainWindow):
         empty.addStretch()
         self.board_stack.addWidget(self.empty_panel)
         mid.addWidget(self.board_stack,1)
+        lookahead_dialog = QDialog(self)
+        lookahead_dialog.setWindowTitle("Look ahead")
+        lookahead_dialog.setModal(True)
+        lookahead = QFormLayout(lookahead_dialog)
+        lookahead.setSpacing(8)
+        self.lookahead_count = QSpinBox()
+        self.lookahead_count.setAccessibleName("Look ahead")
+        self.lookahead_count.setRange(1, 12)
+        self.lookahead_count.setSuffix(" moves")
+        self.lookahead_count.setSpecialValueText("Off")
+        self.lookahead_count.setKeyboardTracking(False)
+        self.lookahead_count.setToolTip("Number of moves in the predicted line, including the suggested move.")
+        lookahead.addRow("Predicted line length", self.lookahead_count)
+
+        self.lookahead_budget = QDoubleSpinBox()
+        self.lookahead_budget.setAccessibleName("Reply time")
+        self.lookahead_budget.setRange(self.prediction_seconds.minimum(), self.prediction_seconds.maximum())
+        self.lookahead_budget.setSingleStep(.1)
+        self.lookahead_budget.setSuffix(" s")
+        self.lookahead_budget.setKeyboardTracking(False)
+        self.lookahead_budget.setToolTip(self.prediction_seconds.toolTip())
+        self.lookahead_count.valueChanged.connect(self.change_lookahead)
+        self.lookahead_budget.valueChanged.connect(self.change_lookahead)
+        lookahead.addRow("Reply time", self.lookahead_budget)
+        self._button("Done", lookahead_dialog.accept, lookahead)
+        self.lookahead_button = self._button("Look ahead…", lookahead_dialog.show, options)
+        self.lookahead_button.setToolTip("Set the predicted line length and the reply time budget.")
+        for index in range(options.count()):
+            options.setStretch(index, 1)
+        self.predicted_line = QLabel()
+        self.predicted_line.setWordWrap(True)
+        self.predicted_line.setStyleSheet("font-size:13px;color:#d5c4ed;")
+        self.predicted_line.setToolTip("The first move is a current suggestion. Each following entry is a predicted reply or response.")
+        self.predicted_line.hide()
+        mid.addWidget(self.predicted_line)
         self.board_summary = QWidget()
         summary = QVBoxLayout(self.board_summary)
         summary.setContentsMargins(0, 0, 0, 0)
@@ -1232,7 +1279,10 @@ class MainWindow(QMainWindow):
         mid.addLayout(history)
         self.eval_label = QLabel("Evaluation —")
         self.eval_label.setWordWrap(True)
-        summary.addWidget(self.eval_label)
+        summary_footer = QHBoxLayout()
+        summary_footer.addWidget(self.eval_label, 1)
+        self._button("Coach", self.show_coach, summary_footer)
+        summary.addLayout(summary_footer)
         self.fen = QLineEdit(chess.STARTING_FEN)
         self.fen.setPlaceholderText("Paste a full FEN")
         self.fen.setToolTip("FEN records pieces, turn, castling, en passant, and move counters.")
@@ -1269,6 +1319,7 @@ class MainWindow(QMainWindow):
         self.lines.setLineWrapMode(QTextBrowser.LineWrapMode.WidgetWidth)
         self.lines.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
         self.analysis_tabs = QTabWidget()
+        self.analysis_tabs.setObjectName("boardAnalysisTabs")
         self.analysis_tabs.addTab(self.lines, "Analysis")
         moves_page = QWidget()
         moves_layout = QVBoxLayout(moves_page)
@@ -1289,7 +1340,15 @@ class MainWindow(QMainWindow):
         self.advantage_seconds = self.move_advantage.seconds
         self.advantage_depth = self.move_advantage.depth
         self.advantage_gain_arrows = self.move_advantage.show_scores
+        self.advantage_positive_only = self.move_advantage.positive_only
         self.analysis_tabs.addTab(self.move_advantage, "Move advantage")
+        self.coach_search = CoachAnalysis(self)
+        self.coach_search.changed.connect(self.refresh_coach)
+        self.coach = CoachPane(self.suggest_coach, self.open_coach_settings)
+        self.coach.preview_changed.connect(self.repaint_board_visuals)
+        self.analysis_tabs.addTab(self.coach, "Coach")
+        self.analysis_tabs.currentChanged.connect(self.refresh_coach)
+        self.board_stack.currentChanged.connect(self.refresh_coach)
         self.settings_page = QWidget()
         settings_page_layout = QVBoxLayout(self.settings_page)
         settings_page_layout.setContentsMargins(20, 12, 20, 8)
@@ -1446,6 +1505,116 @@ class MainWindow(QMainWindow):
         dialog = BrowserSetup(self)
         dialog.exec()
 
+    def coach_snapshot(self, board, result, assessment, may_show, *, white_bottom=None):
+        moves = []
+        if may_show and result and result["fen"] == board.fen():
+            count = len(result["lines"])
+            if white_bottom is None:
+                count = 1 if self.stick_to_move.isChecked() else min(5, self.multipv.value())
+            for rank, line in enumerate(result["lines"][:count], 1):
+                if white_bottom is None and not self.visible_rank(rank):
+                    continue
+                move = {key: line.get(key, "") for key in ("san", "score", "description", "insights", "reply_simple")}
+                if white_bottom is not None:
+                    piece = board.piece_at(chess.Move.from_uci(line["move"]).from_square)
+                    length = self.coach_search.preferences["prediction_plies"]
+                    variation = line.get("pv_moves", ())[:length]
+                    continuation = describe_continuation(board, variation)["pv"] if len(variation) > 2 else ""
+                    move.update(rank=rank, piece=piece.symbol() if piece else "", continuation=continuation,
+                                uci=line["move"], reply_uci=line.get("reply_move", "") if length > 1 else "",
+                                reply_status="")
+                    if length == 1:
+                        move["reply_simple"] = ""
+                    elif not move["reply_simple"]:
+                        move["reply_status"] = line.get("reply_status") or (
+                            "Looking for a reply…" if result.get("provisional") else "Reply unavailable")
+                    move["score"] = evaluation_text(line.get("cp"), line.get("mate"), line.get("white_share"),
+                                                    white_bottom=white_bottom)
+                moves.append(move)
+        score = assessment.get("score", "")
+        if white_bottom is not None:
+            score = evaluation_text(assessment.get("cp"), assessment.get("mate"), assessment.get("white_share"),
+                                    white_bottom=white_bottom)
+        return {
+            "side": "White" if board.turn else "Black",
+            "engine": result.get("engine", "") if moves else "",
+            "score": score,
+            "evaluator": assessment.get("provider", ""),
+            "moves": moves,
+            "waiting_for_turn": not may_show,
+        }
+
+    def open_coach_settings(self):
+        dialog = CoachSettings(self, self.coach_search.preferences)
+        if dialog.exec():
+            preferences = dialog.preferences()
+            if preferences != self.coach_search.preferences:
+                self.coach_search.preferences = preferences
+                self.suggest_coach()
+                self.queue_autosave()
+        dialog.deleteLater()
+
+    def suggest_coach(self):
+        self.coach_search.follow = True
+        self.coach_search.clear()
+        if self.source.currentIndex() == 1 and not self._screen_confirmed and not self._reviewing:
+            self.start_live(compact=True)
+        self.refresh_coach()
+
+    def refresh_coach(self, *_):
+        if not self._ready or self.closing:
+            return
+        search = self.coach_search
+        if (self.analysis_tabs.currentWidget() is not self.coach or self._compact
+                or self.workspace_stack.currentIndex() != 0):
+            self.coach.clear_preview()
+            if search.key is not None:
+                search.clear()
+            return
+        if (self.board_stack.currentIndex() != 0
+                or self.source.currentIndex() == 1 and self._monitoring and not self._screen_confirmed):
+            search.clear()
+            detail = ("Open a screenshot that shows the whole chessboard." if self.source.currentIndex() == 2
+                      else "Keep the whole chessboard visible so Coach can read the position.")
+            self.coach.set_guidance(None, title="Waiting for a board", status=detail)
+            return
+        board = self.tracker.board
+        fen = board.fen()
+        if self.game_ended or board.is_game_over():
+            search.clear()
+            self.coach.set_guidance(fen, title="Game over", status="Open another position to see suggestions.")
+            return
+        may_show = self.allowed_colors()[0]
+        if may_show and (search.follow or self._monitoring and self.live_button.isChecked()):
+            search.request(board)
+        elif search.key is not None:
+            search.clear()
+        result = search.result
+        assessment = dict(result.get("evaluation", result["lines"][0]), provider=result["engine"]) if result else {}
+        snapshot = self.coach_snapshot(board, result, assessment, may_show, white_bottom=self.white_bottom)
+        snapshot["position_summary"] = assessment.get("advantage", "")
+        if not snapshot["engine"]:
+            snapshot["engine"] = engine_library.BY_ID[search.preferences["engine_id"]].label
+        status = ""
+        can_suggest = False
+        if snapshot["waiting_for_turn"]:
+            status = "Waiting for your side to move." if self.only_my_color.isChecked() else "Suggestions for this side are hidden."
+        elif search.error:
+            status = search.error
+            can_suggest = True
+        elif search.job and not result:
+            status = "Looking for moves in this position…"
+        elif result and result.get("continuation_pending"):
+            status = "Calculating replies…"
+        elif result and result.get("provisional"):
+            status = "Refining suggestions…"
+        elif not result:
+            status = "See what you could play next and why it helps."
+            can_suggest = True
+        move_type = "Human predictions" if result and result.get("evaluation_kind") == "human-game outcome estimate" else ""
+        self.coach.set_guidance(fen, snapshot, status=status, perspective="White" if self.white_bottom else "Black",
+                                move_type=move_type, can_suggest=can_suggest)
+
     def publish_reader_hints(self):
         self.browser_reader_status.setText(self.browser_reader.connection_status().replace('Reader','Browser connection') if self.browser_reader else 'Browser connection off')
         if self.native_reader_button.isChecked():
@@ -1460,21 +1629,11 @@ class MainWindow(QMainWindow):
             for read,tracker,arrows,marks,confirmed,result in sources:
                 if read and tracker and confirmed and getattr(read,'source_id','').startswith('browser:'):
                     board = tracker.board
-                    side = 'White' if board.turn else 'Black'
                     assessment = self.evaluations.score(board, result)
                     may_show = self.show_white.isChecked() if board.turn else self.show_black.isChecked()
                     if self.only_my_color.isChecked():
                         may_show = board.turn == read.white_bottom
-                    candidates = []
-                    if may_show and result and result.get('fen') == board.fen():
-                        limit = 1 if self.stick_to_move.isChecked() else min(5, self.multipv.value())
-                        candidates = [
-                            {key: line.get(key, '') for key in ('san', 'score', 'description', 'insights', 'reply_simple')}
-                            for rank, line in enumerate(result['lines'][:limit], 1) if self.visible_rank(rank)
-                        ]
-                    coach = {'side': side, 'engine': result.get('engine', '') if candidates else '',
-                             'score': assessment.get('score', ''), 'evaluator': assessment.get('provider', ''),
-                             'moves': candidates, 'waiting_for_turn': not may_show}
+                    coach = self.coach_snapshot(board, result, assessment, may_show)
                     browser_evaluation = None
                     if self.browser_eval_enabled.isChecked():
                         browser_score = evaluation_text(assessment['cp'], assessment['mate'], assessment.get('white_share'),
@@ -1540,6 +1699,7 @@ class MainWindow(QMainWindow):
             self.empty_detail.setText(f"Watching {self.monitor_description()}. Open a complete 2D chessboard there, or choose another monitor in Board settings. The board and evaluation will appear after a clear read.")
             self.position_label.setText("Live screen · no confirmed board")
         self.simple_label.clear();self.reply_label.clear()
+        self.predicted_line.hide()
         for widget in (self.simple_label,self.reply_label,self.eval_label,self.previous_button,self.next_button,self.resume_button):widget.hide()
         self.arrange_position_controls()
         self.eval_label.setText("Evaluation — waiting for a board")
@@ -1613,7 +1773,8 @@ class MainWindow(QMainWindow):
                 color = QColor(threat_colors.get(key, DEFAULT_COLORS[key]))
                 if color.isValid():
                     button.set_color(color)
-        self.move_advantage.show_scores.setChecked(bool(self.settings.get("advantage_gain_arrows", self.settings.get("advantage_square_scores", False))))
+        self.move_advantage.show_scores.setChecked(bool(self.settings.get("advantage_gain_arrows", self.settings.get("advantage_square_scores", True))))
+        self.move_advantage.positive_only.setChecked(bool(self.settings.get("advantage_positive_only", False)))
         score_color = QColor(self.settings.get("advantage_gain_color", self.settings.get("advantage_square_color", "#53c6df")))
         if score_color.isValid():
             self.move_advantage.score_color.set_color(score_color)
@@ -1676,11 +1837,13 @@ class MainWindow(QMainWindow):
                       advantage_seconds=self.move_advantage.seconds.value(),
                       advantage_depth=self.move_advantage.depth.value(),
                       advantage_gain_arrows=self.move_advantage.show_scores.isChecked(),
+                      advantage_positive_only=self.move_advantage.positive_only.isChecked(),
                       advantage_gain_color=self.move_advantage.score_color.color,
                       threat_refresh_ms=self.threat_refresh.value(),
                       threat_colors={key: button.color for key, button in self.threat_colors.items()})
         values.update(custom_engine=self.custom_engine.text(),dashed_reply=self.dashed_reply.isChecked())
         values.update(arrow_count=self.arrow_count.value(),threats_enabled=self.threats_enabled.isChecked(),threat_attacks=self.threat_attacks.isChecked(),threat_mates=self.threat_mates.isChecked(),target_lock=self.target_lock.target,active_preset=self.preset_combo.currentData())
+        values["coach"] = self.coach_search.preferences
         try:
             try:validate_keys(values['keys'])
             except ValueError:values['keys']=self.settings.get('keys',DEFAULT_KEYS)
@@ -1689,8 +1852,30 @@ class MainWindow(QMainWindow):
         except OSError as exc:
             self.status(f"Could not save preferences: {exc}")
 
+    def sync_lookahead(self, *_):
+        if not hasattr(self, "lookahead_count"):
+            return
+        enabled = self.predict_continuations.isChecked()
+        with QSignalBlocker(self.lookahead_count), QSignalBlocker(self.lookahead_budget):
+            self.lookahead_count.setValue(self.prediction_plies.value() if enabled else 1)
+            self.lookahead_budget.setValue(self.prediction_seconds.value())
+        self.lookahead_budget.setEnabled(enabled and self.prediction_plies.value() > 1)
+
+    def change_lookahead(self, *_):
+        count = self.lookahead_count.value()
+        with QSignalBlocker(self.predict_continuations), QSignalBlocker(self.prediction_plies), QSignalBlocker(self.prediction_seconds):
+            self.predict_continuations.setChecked(count > 1)
+            if count > 1:
+                self.prediction_plies.setValue(count)
+            self.prediction_seconds.setValue(self.lookahead_budget.value())
+        self.prediction_controls_changed()
+        self.queue_autosave()
+        if self._ready and self.editable_position and not self._reviewing and not self.game_ended:
+            self.suggest()
+
     def prediction_controls_changed(self,*_):
         for field in (self.prediction_plies,self.prediction_seconds):field.setEnabled(self.predict_continuations.isChecked())
+        self.sync_lookahead()
         self.engine_settings_changed()
 
     def mode_changed(self, *_):
@@ -1964,6 +2149,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, "board_view"):
             self.simple_label.setText("Best move — waiting for analysis")
             self.reply_label.clear()
+            self.predicted_line.hide()
             self.board_view.best_move = None
             self.board_view.arrows = []
             self.overlay.hide()
@@ -1972,6 +2158,7 @@ class MainWindow(QMainWindow):
                 self.eval_bar.cp, self.eval_bar.mate, self.eval_bar.white_share = None, None, None
             self.eval_bar.update()
             self.eval_label.setText("Updating evaluation…" if preserve_eval else "Evaluation — waiting for analysis")
+            self.refresh_coach()
             if not preserve_eval:
                 self.show_welcome()
 
@@ -2018,6 +2205,7 @@ class MainWindow(QMainWindow):
         self.position_label.setText(text)
         if self.source.currentIndex() == 1 and not self._turn_known:
             self.position_label.setText(text + " · turn inferred")
+        self.refresh_coach()
 
     def set_local_turn(self, index):
         if not self.editable_position:
@@ -2188,6 +2376,8 @@ class MainWindow(QMainWindow):
         try:
             if self._reviewing:
                 return
+            if self.analysis_tabs.currentWidget() is self.coach:
+                self.coach_search.follow = True
             if self.source.currentIndex() == 1:
                 if not self._screen_confirmed or self._last_read is None:
                     self.start_live(compact=True)
@@ -2214,6 +2404,7 @@ class MainWindow(QMainWindow):
             job.on_update=lambda result:self.engine_signals.progress.emit(generation,result)
             settings = self.search_settings()
             self.status(f"Thinking for {'White' if board.turn else 'Black'} · {self.limit_label.text()}. STOP cancels.")
+            self.refresh_coach()
             def work():
                 try:
                     result, error = job.run(path, board, settings), ""
@@ -2246,6 +2437,7 @@ class MainWindow(QMainWindow):
         self.job = None
         if error:
             self.status(f"Engine error: {error}")
+            self.refresh_coach()
             return
         if not result or result["fen"] != self.tracker.board.fen():
             return
@@ -2402,8 +2594,14 @@ class MainWindow(QMainWindow):
     def update_visuals(self):
         if not hasattr(self,"board_view"):
             return
+        self.refresh_coach()
+        self.repaint_board_visuals()
+
+    def repaint_board_visuals(self):
         self.update_screen_evaluation()
         arrows=[]
+        continuation = []
+        line_status = ""
         move_result=self.displayed_result(self.result)
         if move_result and move_result.get("fen")==self.tracker.board.fen():
             locked=self.stick_to_move.isChecked()
@@ -2414,16 +2612,52 @@ class MainWindow(QMainWindow):
                 if color_allowed and self.visible_rank(index):
                     arrows.append({"move":chess.Move.from_uci(line["move"]),"color":self.recommendation_color(index),"label":f"{side}{index}"})
             lead=move_result["lines"][0]
+            if (color_allowed and not locked and self.predict_continuations.isChecked()
+                    and self.rank_best.isChecked() and not self.game_ended):
+                probe = self.tracker.board.copy(stack=False)
+                for uci in lead.get("pv_moves", [])[:self.prediction_plies.value()]:
+                    move = chess.Move.from_uci(uci)
+                    if move not in probe.legal_moves:
+                        break
+                    continuation.append(probe.san(move))
+                    probe.push(move)
+                if move_result.get("prediction", {}).get("budget_exhausted"):
+                    line_status = f"{len(continuation)} of {self.prediction_plies.value()} moves · reply time reached"
+                elif move_result.get("continuation_pending"):
+                    line_status = "Calculating replies…"
             if other_allowed and self.show_reply.isChecked() and self.rank_best.isChecked() and lead.get("reply_move"):
                 arrows.append({"move":chess.Move.from_uci(lead["reply_move"]),"color":"#53e2e4","label":"B↳" if side=="W" else "W↳","reply":True,"dashed":self.dashed_reply.isChecked()})
         if (self.editable_position or self._screen_confirmed) and not self.game_ended and self.allowed_colors()[0]:
             arrows.extend(self.extra_engines.arrows(self.tracker.board))
         if self.editable_position and not self.overlay_enabled.isChecked():
             arrows.clear()
+        board = self.tracker.board
+        preview = self.coach.preview_for(board.fen())
+        preview_moves = set()
+        if preview:
+            move = chess.Move.from_uci(preview["uci"])
+            if move in board.legal_moves:
+                selected = [{"move": move, "color": COACH_PREVIEW_COLOR, "preview": True}]
+                if preview["reply_uci"]:
+                    after = board.copy(stack=False)
+                    after.push(move)
+                    reply = chess.Move.from_uci(preview["reply_uci"])
+                    if reply in after.legal_moves:
+                        selected.insert(0, {"move": reply, "color": COACH_REPLY_COLOR, "preview": True,
+                                            "reply": True, "dashed": True})
+                preview_moves = {arrow["move"].uci() for arrow in selected}
+                arrows = [arrow for arrow in arrows if arrow["move"].uci() not in preview_moves] + selected
+        if len(continuation) > 1:
+            text = f"Predicted line · {len(continuation)} turns · " + " → ".join(continuation)
+            self.predicted_line.setText(f"{text} · {line_status}" if line_status else text)
+        elif line_status:
+            self.predicted_line.setText(line_status)
+        self.predicted_line.setVisible((len(continuation) > 1 or bool(line_status)) and self.board_stack.currentIndex() == 0)
         self.board_view.arrows=arrows
         self.board_view.overlap_color = self.overlay.overlap_color = self.overlap_color
         marks,messages=self.threat_marks(self.tracker.board,self.white_bottom)
-        marks.extend(self.move_advantage.marks(self.tracker.board))
+        marks.extend(mark for mark in self.move_advantage.marks(self.tracker.board)
+                     if mark.get("move") not in preview_moves)
         self.board_view.marks=marks
         self.board_view.setToolTip('\n'.join(messages) if messages else 'Recognized chess position')
         if not self.arrow_labels.isChecked():
@@ -2507,6 +2741,9 @@ class MainWindow(QMainWindow):
             self.status(str(exc))
 
     def stop(self, checked=False):
+        self.predicted_line.hide()
+        self.coach_search.follow = False
+        self.coach_search.clear()
         if getattr(getattr(self, 'permissions', None), 'blocked', False):
             self.permissions.resume = False
         self._monitoring = False
@@ -2530,6 +2767,7 @@ class MainWindow(QMainWindow):
             self.job.cancel()
             self.job = None
             self.last_requested_fen = None
+        self.refresh_coach()
         self.status("STOPPED · screen monitoring and engine search are off")
 
     def recommendation_color(self, rank):
@@ -2746,6 +2984,7 @@ class MainWindow(QMainWindow):
                 shown = evaluation_text(score['cp'], score['mate'], score.get('white_share'), white_bottom=self.white_bottom)
                 self.eval_label.setText(f"{score['provider']} · {shown} for {perspective}")
                 self.update_screen_evaluation()
+                self.refresh_coach()
         for state in self.multi.states:
             if state.tracker and state.tracker.board.fen()==fen:self.multi.render(state)
 
@@ -2767,6 +3006,10 @@ class MainWindow(QMainWindow):
         self.monitor.setEnabled(self.source.currentIndex()==1)
         self.open_screenshot_button.setVisible(self.source.currentIndex()==2)
         self.quick_scan_button.setText("Open screenshot…" if self.source.currentIndex() == 2 else "Scan now")
+        live = self.source.currentIndex() == 1
+        self.quick_arrows.setText("Screen arrows" if live else "Arrows")
+        self.quick_arrows.setToolTip("Show arrows on the board you’re scanning. Suggestions are still visible in the BoardLens preview."
+                                     if live else "Show or hide arrows on this board.")
         self.turn.setEnabled(self.source.currentIndex()==1);self.position_turn_form.setRowVisible(self.turn,self.source.currentIndex()==1)
         self.move_button.setVisible(self.editable_position)
         self.arrange_position_controls()
@@ -2858,6 +3101,7 @@ class MainWindow(QMainWindow):
         if hasattr(self,'autosave_timer'):self.autosave_timer.stop()
         self.settings_dialog.close()
         self.move_advantage.close_engine()
+        self.coach_search.close_engine()
         self.threat_updates.close()
         if self.game_review is not None:
             self.game_review.close()

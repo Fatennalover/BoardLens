@@ -15,6 +15,23 @@ from .core import square_to_cell
 
 
 DEFAULT_OVERLAP_COLOR = "#a855f7"
+COACH_PREVIEW_COLOR = "#eab1ff"
+COACH_REPLY_COLOR = "#76e3dc"
+
+
+def shafts_share_segment(first, second, cell):
+    start, end = first
+    axis = end - start
+    length = math.hypot(axis.x(), axis.y())
+    if length == 0:
+        return False
+    unit = axis / length
+    a, b = (point - start for point in second)
+    distance = max(abs(point.x() * unit.y() - point.y() * unit.x()) for point in (a, b))
+    if distance > cell * .015:
+        return False
+    low, high = sorted(point.x() * unit.x() + point.y() * unit.y() for point in (a, b))
+    return min(length, high) - max(0., low) > cell * .16
 
 
 def paint_arrows(painter, rect, white_bottom, arrows, overlap_color=DEFAULT_OVERLAP_COLOR):
@@ -24,6 +41,7 @@ def paint_arrows(painter, rect, white_bottom, arrows, overlap_color=DEFAULT_OVER
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     shapes = []
     labels = []
+    previews = []
     overlaps = QPainterPath()
     for arrow in sorted(arrows, key=lambda candidate: not candidate.get("reply", False)):
         move = arrow["move"]
@@ -40,7 +58,8 @@ def paint_arrows(painter, rect, white_bottom, arrows, overlap_color=DEFAULT_OVER
         color = QColor(arrow["color"])
         color.setAlpha(215)
         style = Qt.PenStyle.DashLine if arrow.get("dashed") else Qt.PenStyle.SolidLine
-        pen = QPen(color, max(3, cell * .095), style, Qt.PenCapStyle.RoundCap)
+        preview = arrow.get("preview")
+        pen = QPen(color, max(3, cell * (.135 if preview else .095)), style, Qt.PenCapStyle.RoundCap)
         shaft = QPainterPath(start)
         dx, dy = abs(end.x() - start.x()) / cell, abs(end.y() - start.y()) / cell
         tail = start
@@ -51,33 +70,46 @@ def paint_arrows(painter, rect, white_bottom, arrows, overlap_color=DEFAULT_OVER
         shaft.lineTo(end)
 
         angle = math.atan2(end.y() - tail.y(), end.x() - tail.x())
-        length = cell * .29
+        length = cell * (.36 if preview else .29)
         head = QPainterPath()
         head.addPolygon(QPolygonF([end,
             QPointF(end.x() - length * math.cos(angle - .52), end.y() - length * math.sin(angle - .52)),
             QPointF(end.x() - length * math.cos(angle + .52), end.y() - length * math.sin(angle + .52))]))
         head.closeSubpath()
         shape = QPainterPathStroker(pen).createStroke(shaft).united(head)
+        if preview:
+            previews.append((shape, color))
+            continue
         painter.fillPath(shape, color)
         bounds = shape.boundingRect()
-        for other, other_bounds in shapes:
-            if bounds.intersects(other_bounds):
+        segments = [(start, tail), (tail, end)] if tail != start else [(start, end)]
+        for other, other_bounds, other_segments in shapes:
+            if bounds.intersects(other_bounds) and any(
+                    shafts_share_segment(segment, previous, cell)
+                    for segment in segments for previous in other_segments):
                 overlaps = overlaps.united(shape.intersected(other))
-        shapes.append((shape, bounds))
+        shapes.append((shape, bounds, segments))
 
         if arrow.get("label"):
             labels.append((arrow["label"], start * .28 + end * .72, color))
 
     painter.fillPath(overlaps, QColor(overlap_color))
-    radius = max(9, cell * .16)
-    for label, center, color in labels:
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor("#152630"))
-        painter.drawEllipse(center, radius, radius)
-        painter.setPen(color.lighter(130))
-        painter.setFont(QFont("Arial", max(8, round(radius * .8)), QFont.Weight.Bold))
-        painter.drawText(QRectF(center.x() - radius, center.y() - radius, 2 * radius, 2 * radius),
-                         Qt.AlignmentFlag.AlignCenter, label)
+    if labels:
+        font = QFont("Arial", max(8, round(cell * .12)), QFont.Weight.Bold)
+        painter.setFont(font)
+        metrics = QFontMetricsF(font)
+        for label, center, color in labels:
+            width, height = metrics.horizontalAdvance(label) + 8, metrics.height() + 3
+            box = QRectF(center.x() - width / 2, center.y() - height / 2, width, height)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor("#152630"))
+            painter.drawRoundedRect(box, 2, 2)
+            painter.setPen(color.lighter(130))
+            painter.drawText(box, Qt.AlignmentFlag.AlignCenter, label)
+    for shape, color in previews:
+        painter.strokePath(shape, QPen(QColor("#2c173f"), max(2, cell * .055),
+                                       Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        painter.fillPath(shape, color)
 
 
 def mark_rect(rect, white_bottom, mark):
@@ -120,10 +152,44 @@ def paint_marks(painter, rect, white_bottom, marks):
     painter.restore()
 
 
+def score_arrow_points(start, end, cell):
+    delta = end - start
+    unit = delta / math.hypot(delta.x(), delta.y())
+    perpendicular = QPointF(-unit.y(), unit.x())
+    stem = start + unit * cell * .16
+    tip = end - unit * cell * .10
+    tail = tip - unit * cell * .27
+    wing = perpendicular * cell * .15
+    chevron = [tip, tail + wing, tail + unit * cell * .08, tail - wing]
+    return stem, tail, chevron, start + delta * .64
+
+
+def score_badge_points(center, width, height):
+    x, y = center.x() - width / 2, center.y() - height / 2
+    notch = height * .25
+    return [QPointF(x, y), QPointF(x + width, y),
+            QPointF(x + width + notch, center.y()), QPointF(x + width, y + height),
+            QPointF(x, y + height), QPointF(x - notch, center.y())]
+
+
+def space_score_badge(center, delta, width, height, occupied, board_rect):
+    side = QPointF(-delta.y(), delta.x()) / math.hypot(delta.x(), delta.y()) * height
+    for offset in (QPointF(), side * .8, side * -.8, side * 1.4, side * -1.4):
+        for shift in (0., -.20, .14, -.37):
+            point = center + delta * shift + offset
+            bounds = QRectF(point.x() - width / 2 - height * .25 - 1,
+                            point.y() - height / 2 - 1, width + height * .5 + 2, height + 2)
+            if board_rect.contains(bounds) and not any(bounds.intersects(other) for other in occupied):
+                occupied.append(bounds)
+                return point
+    return center
+
+
 def paint_gain_arrows(painter, rect, white_bottom, marks):
     painter.save()
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     badges = []
+    dark = QColor("#14121e")
     for mark in marks:
         if mark["kind"] != "gain_arrow":
             continue
@@ -131,45 +197,37 @@ def paint_gain_arrows(painter, rect, white_bottom, marks):
         target = mark_rect(rect, white_bottom, mark)
         origin = mark_rect(rect, white_bottom, dict(mark, square=move.from_square))
         cell = target.width()
-        start, end = origin.center(), target.center()
-        delta = end - start
-        length = math.hypot(delta.x(), delta.y())
-        if not length:
+        if target.center() == origin.center():
             continue
-        unit = delta / length
-        perpendicular = QPointF(-unit.y(), unit.x())
-        point = end - unit * cell * .11
-        stem = start + unit * cell * .18
-        tail = point - unit * cell * .21
-        half_head = perpendicular * cell * .125
-        shape = QPainterPath(stem)
-        shape.lineTo(tail)
-        shape.moveTo(tail + half_head)
-        shape.lineTo(point)
-        shape.lineTo(tail - half_head)
-
+        stem, tail, head, center = score_arrow_points(origin.center(), target.center(), cell)
         color = QColor(mark["color"])
-        stroke = max(1.6, cell * .032)
-        border = QColor("#1a1527")
-        for ink, width in ((border, stroke + 2.4), (color, stroke)):
-            painter.setPen(QPen(ink, width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
-            painter.drawPath(shape)
-        badges.append((stem + (point - stem) * .56, cell, mark["label"], color, border))
+        width = max(2., cell * .044)
+        for ink, stroke in ((dark, width + 2.4), (color, width)):
+            pen = QPen(ink, stroke, Qt.PenStyle.SolidLine, Qt.PenCapStyle.FlatCap)
+            pen.setDashPattern([cell * .115 / stroke, cell * .090 / stroke])
+            painter.setPen(pen)
+            painter.drawLine(stem, tail)
+        painter.setBrush(dark)
+        painter.setPen(QPen(color, width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        painter.drawPolygon(QPolygonF(head))
+        badges.append((center, target.center() - origin.center(), cell, mark["label"], color))
 
-    for center, cell, label, color, border in badges:
+    occupied = []
+    for center, delta, cell, label, color in badges:
         font = QFont("Arial")
         font.setBold(True)
-        font.setPixelSize(max(9, min(17, round(cell * .19))))
+        font.setPixelSize(max(11, min(22, round(cell * .23))))
         painter.setFont(font)
         metrics = QFontMetricsF(font)
-        width = metrics.horizontalAdvance(label) + max(12, cell * .27)
-        height = max(13, metrics.height() + 3)
-        badge = QRectF(center.x() - width / 2, center.y() - height / 2, width, height)
-        painter.setPen(QPen(color, max(1, cell * .02)))
-        painter.setBrush(border)
-        painter.drawRoundedRect(badge, height * .31, height * .31)
-        painter.setPen(QColor("#f8f4ff"))
-        painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, label)
+        width = metrics.horizontalAdvance(label) + max(13, cell * .22)
+        height = max(16, metrics.height() + 4)
+        center = space_score_badge(center, delta, width, height, occupied, rect)
+        painter.setPen(QPen(color, max(1.3, cell * .025)))
+        painter.setBrush(dark)
+        painter.drawPolygon(QPolygonF(score_badge_points(center, width, height)))
+        painter.setPen(QColor("#ffffff"))
+        box = QRectF(center.x() - width / 2, center.y() - height / 2, width, height)
+        painter.drawText(box, Qt.AlignmentFlag.AlignCenter, label)
     painter.restore()
 
 

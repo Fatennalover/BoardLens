@@ -707,7 +707,8 @@ public final class ScreenService extends Service {
     Handler owner=capture;
     if(owner!=null&&Looper.myLooper()!=owner.getLooper()){owner.post(()->publishEvaluation(result,board,token));return;}
     if(token!=generation.get()||!running||!settings.evaluationEnabled()||position==null||!position.fen().equals(board.fen()))return;
-    hasEvaluationValue=true;evaluation=result.text();whiteShare=result.whiteShare();evaluationBadge=result.badge();changed();renderOverlay();
+    LocalEngines.Evaluated shown=LocalEngines.orient(result,trackedWhiteBottom);
+    hasEvaluationValue=true;evaluation=shown.text();whiteShare=shown.whiteShare();evaluationBadge=shown.badge();changed();renderOverlay();
   }
 
   private String displayedFen = "", displayedMove = "";

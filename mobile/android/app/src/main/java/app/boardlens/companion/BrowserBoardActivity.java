@@ -45,11 +45,6 @@ public final class BrowserBoardActivity extends Activity {
     private final Runnable observeSettings = () -> lastKey="";
     private final SharedPreferences.OnSharedPreferenceChangeListener preferenceListener = (prefs, key) -> {
         if (FloatingControls.BROWSER_ENABLED.equals(key)) return;
-        if (CoachPanel.PREFERENCE.equals(key)) {
-            renderCoach();
-            if (coach.count()>0) lastKey="";
-            return;
-        }
         if (ArrowEngines.isColorKey(key) || "arrows".equals(key) || "onlyMine".equals(key)
                 || "screen_evaluation".equals(key)) publish();
         else if (ArrowEngines.PREF.equals(key) && running && analysisEnabled && position != null) {
@@ -89,15 +84,13 @@ public final class BrowserBoardActivity extends Activity {
         LinearLayout boardStatus=new LinearLayout(this);
         boardStatus.setGravity(android.view.Gravity.CENTER_VERTICAL);
         boardStatus.addView(status,new LinearLayout.LayoutParams(0,-2,1));
-        coach=new CoachPanel(this,ui,settings);
-        boardStatus.addView(ui.button("Coach",false,()->coach.options(this::renderCoach)));
+        coach=new CoachPanel(this,ui);
+        boardStatus.addView(ui.button("Coach",false,()->coach.show(position,whiteBottom)));
         boardStatus.addView(ui.button("Move advantage",false,()->{
             if(moveAdvantage==null)moveAdvantage=new MoveAdvantageDialog(this);
             moveAdvantage.show(position);
         }));
         root.addView(boardStatus);
-        root.addView(coach.view(),new LinearLayout.LayoutParams(-1,ui.dp(150)));
-        renderCoach();
         page=new WebView(this);
         page.setBackgroundColor(Color.rgb(29,33,31));
         page.getSettings().setJavaScriptEnabled(true);
@@ -294,7 +287,7 @@ public final class BrowserBoardActivity extends Activity {
         long token=generation.incrementAndGet();
         moves.cancel();evaluator.cancel();
         ChessPosition root=board;
-        PhoneSettings configuration=coach.withCandidates(settings.snapshot());
+        PhoneSettings configuration=settings.snapshot();
         status.setText(turnText(board));
         publish();
         extraEngines.request(this,root,configuration,main,this::publish);
@@ -347,10 +340,7 @@ public final class BrowserBoardActivity extends Activity {
     }
 
     private void renderCoach() {
-        coach.render(position, recommendation, settings.evaluationEnabled() ? evaluation : null,
-                position != null && (!settings.onlyMine() || position.white == whiteBottom),
-                position == null ? "Open a visible chessboard to get coaching." :
-                "Waiting for engine suggestions.");
+        if (coach != null) coach.update(position, whiteBottom);
     }
 
     private void publish() {
@@ -372,7 +362,8 @@ public final class BrowserBoardActivity extends Activity {
             JSONObject data=new JSONObject().put("fen",visibleFen).put("arrows",arrows);
             if(settings.evaluationEnabled()&&settings.screenEvaluation()){
                 JSONObject score=new JSONObject().put("provider",EngineCatalog.get(settings.evaluator()).name());
-                if(evaluation!=null)score.put("white_share",evaluation.whiteShare()).put("score",evaluation.badge());
+                if(evaluation!=null)score.put("white_share",evaluation.whiteShare())
+                        .put("score",LocalEngines.orient(evaluation,whiteBottom).badge());
                 data.put("evaluation",score);
             }else data.put("evaluation",JSONObject.NULL);
             page.evaluateJavascript("window.boardLensLocalHints="+data.toString(),null);
@@ -408,6 +399,7 @@ public final class BrowserBoardActivity extends Activity {
     }
     @Override protected void onDestroy(){
         if(moveAdvantage!=null)moveAdvantage.close();
+        if(coach!=null)coach.close();
         main.removeCallbacksAndMessages(null);
         discardPopup();
         extraEngines.close();

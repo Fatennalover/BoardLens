@@ -15,6 +15,7 @@ public class PhoneScreenActivity extends Activity {
  private PhoneSettings settings;private MobileUi ui;private PhoneDashboard dashboard;
  private boolean movesPage;
  private MoveAdvantageDialog moveAdvantage;
+ private CoachPanel coach;
  private ChessPosition lastOpeningPosition, lastMovePosition;
  private String lastOpening="";
  private TextView movesOpening,movesText;
@@ -35,6 +36,10 @@ public class PhoneScreenActivity extends Activity {
   public void moveAdvantage(){
     if(moveAdvantage==null)moveAdvantage=new MoveAdvantageDialog(PhoneScreenActivity.this);
     moveAdvantage.show(ScreenService.trackedPosition);
+  }
+  public void coach(){
+    if(coach==null)coach=new CoachPanel(PhoneScreenActivity.this,ui);
+    coach.show(ScreenService.trackedPosition,ScreenService.trackedWhiteBottom);
   }
   public void openFloatingMenu(){PhoneScreenActivity.this.openFloatingMenu();}
   public void closeFloatingMenu(){
@@ -65,7 +70,7 @@ public class PhoneScreenActivity extends Activity {
    "Press Start, approve sharing your entire screen, then press Home or Open another app. BoardLens keeps scanning while its foreground-service notification is present, even when its interface is closed. Stop in the app or notification ends the session. Keep all 64 squares visible. Reading pauses on BoardLens’s own screens to avoid reading its preview.",
    "All phone-screen engines run on this device. Stockfish and Flounder share the Stockfish data file. LC0 is an optional CPU engine with a separate 19 MB network. Maia 2 and Maia 3 5M/23M/79M are optional data-model downloads. Original Tiny bots are built into the complete APK. Competition ratings are reference results, not guaranteed phone ratings. The Computer companion section remains available for controlling desktop boards, but is not needed for phone analysis. Downloads are checksum-verified and keep working offline. Recommendation and evaluation engines are independent. Maia evaluation is a human expected score, not Stockfish centipawns or a win probability.",
    "Use the main screen’s timing button for move and evaluation seconds. Evaluation Off stops and unloads its separate engine; hiding Screen evaluation only hides the floating display. Stockfish accepts time, depth, or whichever limit is reached first. LC0 also accepts UCI time/depth limits, but its tree depth is different from Stockfish. Flounder uses Stockfish with an Elo limit. Tiny bots control their own depth; think time supplies their clock budget. All four Maia move models have a thinking-time budget. Their first prediction appears as soon as it finishes; the remaining time limits optional reply calculations. The first pass is allowed to finish even if it exceeds the budget, and a running reply pass may also finish after it. More time permits more of the selected continuation, not a deeper or stronger main Maia prediction. With Predict replies off, Maia makes just one pass. Maia evaluation is also one pass, so it has no search timer. Maia 2 uses rating buckets from below 1100 to 2000 and above; Maia 3 accepts a wider target rating. Show moves while thinking shows early results. Predict replies extends the chosen engine’s line. Three plies means your move, an opponent reply, then your response. Maia keeps a bounded cache of move rankings for recognized and predicted positions; changing rating, model or position uses the corresponding separate result.",
-   "Screen evaluation appears beside or above the board, or in the position you choose. The score always uses White’s perspective. Its time and depth limits are independent from the move engine. The bar updates while Stockfish is thinking. Drag the evaluation bar itself to move it. Tap the floating BoardLens logo to open the menu. Drag its header to move it and its lower-right grip to resize it. The minus returns to the logo. Close removes both. Open the menu again from the Phone screen page or the notification. Screen arrows pass taps through to the chess app. Only my color uses the side at the bottom of the recognized board and waits during the opponent’s turn. Predicted future responses are text, not current-move arrows. Steady arrows reduces changes during thinking. Lock move keeps the first displayed suggestion for the position while evaluation continues. A board change, settings change or Scan now releases the lock. Tiny bots provide one recommendation per search. Other engines support multiple alternatives. Predictions describe a possible continuation, not a promise that the opponent will choose it.",
+   "Screen evaluation appears beside or above the board, or in the position you choose. Positive scores favor the side at the bottom of the board. Its time and depth limits are independent from the move engine. The bar updates while Stockfish is thinking. Drag the evaluation bar to move it. Screen arrows pass taps through to the chess app. Only my color waits during the opponent’s turn. Coach has its own engine. Tap a suggested move in Coach to see a violet arrow for the move and a dashed teal arrow for the likely reply. The preview clears when the position changes.",
    "Android asks for screen-sharing approval for each new capture session. Display over other apps is needed for the menu, arrows and evaluation bar and stays allowed until revoked. Normal analysis needs no Accessibility service. Android may stop sharing when you lock the device, revoke access or force-stop the app. Protected screens cannot be read. Scan now discards the current target and starts a fresh search. Unusual themes, hidden pieces and unsupported 3D camera angles can remain unreadable. Settings save automatically."
   };
   new AlertDialog.Builder(this).setTitle("Phone analysis help").setItems(sections,(d,which)->new AlertDialog.Builder(this).setTitle(sections[which]).setMessage(help[which]).setPositiveButton("Got it",null).show()).setNeutralButton("Diagnostics",(d,w)->Diagnostics.show(this)).setNegativeButton("Close",null).show();
@@ -161,6 +166,7 @@ public class PhoneScreenActivity extends Activity {
   if(isFinishing())return;
   ChessPosition position=ScreenService.trackedPosition;
   if(moveAdvantage!=null)moveAdvantage.update(position);
+  if(coach!=null)coach.update(position,ScreenService.trackedWhiteBottom);
   if(position!=lastOpeningPosition){
     if(position!=null)OpeningNames.load(this);
     lastOpening=OpeningNames.find(position);lastOpeningPosition=position;
@@ -180,7 +186,7 @@ public class PhoneScreenActivity extends Activity {
                      ScreenService.evaluation,ScreenService.whiteShare,ScreenService.preview);
   }
  }
- @Override protected void onDestroy(){if(moveAdvantage!=null)moveAdvantage.close();super.onDestroy();}
+ @Override protected void onDestroy(){if(moveAdvantage!=null)moveAdvantage.close();if(coach!=null)coach.close();super.onDestroy();}
  @Override protected void onStart(){super.onStart();PhoneUiVisibility.start(this);}
  @Override protected void onStop(){PhoneUiVisibility.stop(this);super.onStop();}
  @Override protected void onResume(){super.onResume();ScreenService.listener=this::refresh;if(pendingOverlay){

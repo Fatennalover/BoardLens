@@ -179,3 +179,23 @@ def test_overlap_picker_applies_and_saves_the_color(qt, monkeypatch):
         assert restored.overlap_arrow_button.color == "#38e67b"
     finally:
         restored.close()
+
+
+def test_arrows_that_only_meet_at_a_square_do_not_draw_an_overlap_dot(qt):
+    import chess
+    from PySide6.QtCore import QRectF, Qt
+    from PySide6.QtGui import QColor, QImage, QPainter
+    from chess_helper.overlay import DEFAULT_OVERLAP_COLOR, paint_arrows
+
+    arrows = [
+        {"move": chess.Move.from_uci("d2d4"), "color": "#ffb454"},
+        {"move": chess.Move.from_uci("c5d4"), "color": "#53e2e4", "reply": True},
+    ]
+    image = QImage(800, 800, QImage.Format.Format_ARGB32_Premultiplied)
+    image.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(image)
+    paint_arrows(painter, QRectF(0, 0, 800, 800), True, arrows)
+    painter.end()
+    assert image.pixelColor(350, 450).alpha() > 0
+    assert all(image.pixelColor(x, y) != QColor(DEFAULT_OVERLAP_COLOR)
+               for x in range(337, 364) for y in range(437, 464))

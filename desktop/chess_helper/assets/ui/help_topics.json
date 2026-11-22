@@ -577,7 +577,7 @@
       "How do I turn screen arrows off?"
     ],
     "steps": [
-      "Toggle Arrows in the top bar, Screen arrows in the Arrows tab, or the arrow shortcut.",
+      "In Live screen, turn on Screen arrows in the Board toolbar to draw on the board you’re scanning. The BoardLens preview still shows suggestions when this is off.",
       "This changes screen overlays without stopping monitoring or engine thinking."
     ],
     "details": "The mirrored board and phone can still show their own hints. Covered or unconfirmed target boards may hide screen overlays temporarily.",
@@ -881,16 +881,41 @@
     ]
   },
   {
+    "id": "board-coach",
+    "category": "Engines",
+    "title": "Use Coach on the Board tab",
+    "summary": "Coach explains each suggested move and looks for a likely reply within the reply budget.",
+    "details": "Desktop Coach uses its own engine for the score, suggestions, and predicted replies. Stockfish at full strength is the default. Only my color also applies in Coach.",
+    "steps": [
+      "Open Board and choose Coach beside the analysis tabs. In Compact view, press Coach below the board.",
+      "Open Coach settings to set the engine, think time, depth, number of suggestions, strength, and reply limits. The available settings depend on the engine.",
+      "Press Suggest moves in Coach to analyze a position. When you follow a live board with Auto suggest on, Coach updates while its tab is open.",
+      "Click a Coach move card to see the move in violet and its likely reply as a dashed teal arrow. Click again or change the position to clear the preview."
+    ],
+    "questions": [
+      "Where is Coach in the desktop app?",
+      "Why is the engine suggesting this move?"
+    ],
+    "aliases": [
+      "desktop coach",
+      "move explanation"
+    ],
+    "controls": [
+      "multipv",
+      "predict_continuations"
+    ]
+  },
+  {
     "id": "move-advantage",
     "category": "Engines",
     "title": "Compare how moves change the score",
-    "summary": "Compare up to six moves with a scoring engine of your choice and show gains on the board.",
+    "summary": "Compare up to six moves with a scoring engine of your choice and show score changes on the board.",
     "details": "Search engines compare pawn-sized scores. Model estimates use percentage points. Mate distances and engines that supply moves without numeric scores have their own labels.",
     "steps": [
-      "Open Move advantage next to Analysis and Moves. Select an installed engine and set Moves to compare.",
-      "Choose Time, Depth, or Time + depth and adjust the budget for this scoring engine. Use Engine settings for the separate recommendation engine.",
+      "Open Move advantage next to Analysis and Moves. Set Moves to compare.",
+      "Open Settings in Move advantage to choose the installed scoring engine and its time or depth limits.",
       "After shows the estimated result of the move. Change shows the gain or drop compared with the current estimate for the side to move.",
-      "Turn on Gain arrows to see a distinct arrow from the piece to its destination, with the estimated increase. Zero and negative changes appear in the table. Use Arrow style to change the arrow color."
+      "In Move advantage settings, turn on Score arrows to show the change on the board. Adjust the arrow color or choose Gains only there."
     ],
     "questions": [
       "Which move increases my advantage?",
@@ -907,7 +932,8 @@
       "advantage_mode",
       "advantage_seconds",
       "advantage_depth",
-      "advantage_gain_arrows"
+      "advantage_gain_arrows",
+      "advantage_positive_only"
     ]
   },
   {
@@ -917,7 +943,7 @@
     "summary": "Predict opponent and my next move adds a reply and your following move for every engine.",
     "details": "The first recommendation is shown as soon as the provider returns it. Single-move models then analyze the next two positions with the same engine. These are predictions, not guaranteed play. Each extra search uses the selected search budget. Turning this off saves work. Non-streaming models must finish their first inference before there is a result.",
     "steps": [
-      "Enable Predict opponent and my next move in Engine.",
+      "Open Look ahead in the Board toolbar to set the predicted line length and Reply time for the extra moves. The first move counts toward the line length.",
       "Enable Show moves while thinking to show the first result before the continuation finishes.",
       "Steady arrows keeps the display calm while calculation continues."
     ],

@@ -14,6 +14,7 @@ final class PhoneDashboard {
     default void moves(){}
     default void practice(){}
     default void moveAdvantage(){}
+    default void coach(){}
     default void openFloatingMenu(){}
     default void closeFloatingMenu(){}
     default String timeLabel(){return "Thinking time";}default void timeSettings(){settings();}
@@ -83,6 +84,7 @@ final class PhoneDashboard {
     analysis.addView(engine);
     ui.gap(analysis,8);
     analysis.addView(ui.button("Move advantage",false,a::moveAdvantage));
+    analysis.addView(ui.button("Coach",false,a::coach));
     ui.gap(analysis,14);
     moves=ui.text("Waiting for a board",21,MobileUi.FG,true);
     analysis.addView(moves);

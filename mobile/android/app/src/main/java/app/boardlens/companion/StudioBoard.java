@@ -5,6 +5,7 @@ import android.graphics.*;
 import android.view.View;
 import android.view.MotionEvent;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.List;
@@ -12,11 +13,14 @@ import java.util.function.IntConsumer;
 
 /** UI-only board. The capture service never draws or animates this view. */
 final class StudioBoard extends View {
-  record Arrow(String move, int color, String gain) {
-    Arrow(String move, int color) { this(move, color, null); }
+  record Arrow(String move, int color, String gain, boolean dashed) {
+    Arrow(String move, int color) { this(move, color, null, false); }
+    Arrow(String move, int color, String gain) { this(move, color, gain, false); }
+    Arrow(String move, int color, boolean dashed) { this(move, color, null, dashed); }
   }
   private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
   private final RectF tile = new RectF();
+  private final List<RectF> scoreBadges = new ArrayList<>();
   private final Map<Character,Bitmap> pieces = new HashMap<>();
   private ChessPosition position;
   private boolean whiteBottom = true;
@@ -89,6 +93,7 @@ final class StudioBoard extends View {
         }
       }
     }
+    scoreBadges.clear();
     for (Arrow arrow : arrows) drawArrow(canvas, arrow, offset, cell);
   }
 
@@ -120,34 +125,7 @@ final class StudioBoard extends View {
     if (distance == 0) return;
     float dx = (endX - x) / distance, dy = (endY - y) / distance;
     if (arrow.gain != null) {
-      float neckX = endX - dx * cell * .25f, neckY = endY - dy * cell * .25f;
-      float spread = cell * .12f;
-      Path outline = new Path();
-      outline.moveTo(x + dx * cell * .18f, y + dy * cell * .18f);
-      outline.lineTo(neckX, neckY);
-      outline.moveTo(neckX + dy * spread, neckY - dx * spread);
-      outline.lineTo(endX, endY);
-      outline.lineTo(neckX - dy * spread, neckY + dx * spread);
-      paint.setStyle(Paint.Style.STROKE);
-      paint.setStrokeJoin(Paint.Join.ROUND);
-      paint.setStrokeCap(Paint.Cap.ROUND);
-      paint.setColor(0xff1a1527);
-      paint.setStrokeWidth(cell * .09f);
-      canvas.drawPath(outline, paint);
-      paint.setColor(arrow.color);
-      paint.setStrokeWidth(cell * .037f);
-      canvas.drawPath(outline, paint);
-      paint.setStyle(Paint.Style.FILL);
-      float cx = (x + endX) / 2, cy = (y + endY) / 2;
-      paint.setTypeface(Typeface.DEFAULT_BOLD);
-      paint.setTextSize(Math.max(11, cell * .22f));
-      float halfWidth = paint.measureText(arrow.gain) / 2 + cell * .12f;
-      float halfHeight = paint.getTextSize() * .68f;
-      paint.setColor(0xff1a1527);
-      canvas.drawRoundRect(cx - halfWidth, cy - halfHeight, cx + halfWidth, cy + halfHeight, 4, 4, paint);
-      paint.setColor(0xfff8f4ff);
-      canvas.drawText(arrow.gain, cx - paint.measureText(arrow.gain) / 2,
-          cy - (paint.ascent() + paint.descent()) / 2, paint);
+      drawScoreArrow(canvas, arrow, x, y, endX, endY, dx, dy, cell);
       return;
     }
     float neckX = endX - dx * cell * .30f, neckY = endY - dy * cell * .30f;
@@ -155,7 +133,9 @@ final class StudioBoard extends View {
     paint.setColor(arrow.color);
     paint.setStrokeWidth(cell * .10f);
     paint.setStrokeCap(Paint.Cap.ROUND);
+    if (arrow.dashed) paint.setPathEffect(new DashPathEffect(new float[]{cell * .13f, cell * .1f}, 0));
     canvas.drawLine(x, y, neckX, neckY, paint);
+    paint.setPathEffect(null);
     Path tip = new Path();
     tip.moveTo(endX, endY);
     tip.lineTo(neckX + dy * spread, neckY - dx * spread);
@@ -163,4 +143,87 @@ final class StudioBoard extends View {
     tip.close();
     canvas.drawPath(tip, paint);
   }
+  private void drawScoreArrow(Canvas canvas, Arrow arrow, float x, float y,
+                              float endX, float endY, float dx, float dy, float cell) {
+    int dark = 0xff14121e;
+    float tipX = endX - dx * cell * .10f, tipY = endY - dy * cell * .10f;
+    float tailX = tipX - dx * cell * .27f, tailY = tipY - dy * cell * .27f;
+    float startX = x + dx * cell * .16f, startY = y + dy * cell * .16f;
+    float spread = cell * .15f;
+    float width = Math.max(2, cell * .044f);
+    paint.setStrokeCap(Paint.Cap.BUTT);
+    paint.setPathEffect(new DashPathEffect(new float[]{cell * .115f, cell * .090f}, 0));
+    paint.setColor(dark);
+    paint.setStrokeWidth(width + 2.4f);
+    canvas.drawLine(startX, startY, tailX, tailY, paint);
+    paint.setColor(arrow.color);
+    paint.setStrokeWidth(width);
+    canvas.drawLine(startX, startY, tailX, tailY, paint);
+    paint.setPathEffect(null);
+
+    Path head = new Path();
+    head.moveTo(tipX, tipY);
+    head.lineTo(tailX - dy * spread, tailY + dx * spread);
+    head.lineTo(tailX + dx * cell * .08f, tailY + dy * cell * .08f);
+    head.lineTo(tailX + dy * spread, tailY - dx * spread);
+    head.close();
+    paint.setColor(dark);
+    canvas.drawPath(head, paint);
+    paint.setColor(arrow.color);
+    paint.setStrokeJoin(Paint.Join.ROUND);
+    paint.setStyle(Paint.Style.STROKE);
+    canvas.drawPath(head, paint);
+
+    float cx = x + (endX - x) * .64f, cy = y + (endY - y) * .64f;
+    paint.setTypeface(Typeface.DEFAULT_BOLD);
+    paint.setTextSize(Math.max(11, cell * .23f));
+    float halfWidth = (paint.measureText(arrow.gain) + Math.max(13, cell * .22f)) / 2;
+    float halfHeight = paint.getTextSize() * .68f + 2;
+    float halfBadgeWidth = halfWidth + halfHeight * .5f + 1;
+    float halfBadgeHeight = halfHeight + 1;
+    RectF bounds = new RectF();
+    float boardLeft = (getWidth() - getHeight()) / 2f;
+    placeBadge: for (float offset : new float[]{0, .8f, -.8f, 1.4f, -1.4f}) {
+      for (float shift : new float[]{0, -.20f, .14f, -.37f}) {
+        float bx = cx + (endX - x) * shift - dy * halfHeight * 2 * offset;
+        float by = cy + (endY - y) * shift + dx * halfHeight * 2 * offset;
+        bounds.set(bx - halfBadgeWidth, by - halfBadgeHeight, bx + halfBadgeWidth, by + halfBadgeHeight);
+        if (bounds.left < boardLeft || bounds.right > boardLeft + getHeight()
+            || bounds.top < 0 || bounds.bottom > getHeight()) continue;
+        boolean overlaps = false;
+        for (RectF other : scoreBadges) {
+          if (RectF.intersects(bounds, other)) {
+            overlaps = true;
+            break;
+          }
+        }
+        if (!overlaps) {
+          cx = bx;
+          cy = by;
+          scoreBadges.add(bounds);
+          break placeBadge;
+        }
+      }
+    }
+    Path badge = new Path();
+    badge.moveTo(cx - halfWidth, cy - halfHeight);
+    badge.lineTo(cx + halfWidth, cy - halfHeight);
+    badge.lineTo(cx + halfWidth + halfHeight * .5f, cy);
+    badge.lineTo(cx + halfWidth, cy + halfHeight);
+    badge.lineTo(cx - halfWidth, cy + halfHeight);
+    badge.lineTo(cx - halfWidth - halfHeight * .5f, cy);
+    badge.close();
+    paint.setStyle(Paint.Style.FILL);
+    paint.setColor(dark);
+    canvas.drawPath(badge, paint);
+    paint.setStyle(Paint.Style.STROKE);
+    paint.setColor(arrow.color);
+    paint.setStrokeWidth(Math.max(1.3f, cell * .025f));
+    canvas.drawPath(badge, paint);
+    paint.setStyle(Paint.Style.FILL);
+    paint.setColor(0xffffffff);
+    canvas.drawText(arrow.gain, cx - paint.measureText(arrow.gain) / 2,
+        cy - (paint.ascent() + paint.descent()) / 2, paint);
+  }
+
 }

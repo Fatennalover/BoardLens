@@ -4,6 +4,8 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.view.View;
+import android.view.Gravity;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -11,6 +13,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.HashMap;
 import java.util.concurrent.CancellationException;
 
 final class MoveAdvantageDialog implements AutoCloseable {
@@ -44,7 +47,7 @@ final class MoveAdvantageDialog implements AutoCloseable {
         String savedScorer = preferences.getString("engine", "stockfish");
         int selected = 0;
         for (EngineCatalog.Entry entry : EngineCatalog.ALL) {
-            if (entry.tiny() || entry.policy()) continue;
+            if (entry.tiny()) continue;
             if (!entry.id().equals("stockfish") && !EngineCatalog.ready(activity, entry.id())) continue;
             if (entry.id().equals(savedScorer)) selected = catalog.size();
             catalog.add(entry);
@@ -62,41 +65,48 @@ final class MoveAdvantageDialog implements AutoCloseable {
         LinearLayout content = ui.column();
         content.setPadding(ui.dp(20), ui.dp(14), ui.dp(20), ui.dp(16));
         scroll.addView(content, new ScrollView.LayoutParams(-1, -2));
-        String[] enginesList = catalog.stream().map(EngineCatalog.Entry::name).toArray(String[]::new);
-        content.addView(ui.choice("Scoring engine", enginesList, selected, index -> {
-            scorer = catalog.get(index).id();
-            preferences.edit().putString("engine", scorer).apply();
-            compare();
-        }));
-        ui.gap(content, 8);
-        content.addView(ui.choice("Search limit", LIMITS, List.of(LIMITS).indexOf(mode), index -> {
-            mode = LIMITS[index];
-            preferences.edit().putString("mode", mode).apply();
-            compare();
-        }));
-        ui.gap(content, 8);
-        content.addView(ui.text("Time budget (ms)", 14, MobileUi.MUTED, false));
-        content.addView(new MobileUi.Stepper(ui, 50, 30000, timeMs, 50, value -> {
-            timeMs = value;
-            preferences.edit().putInt("time_ms", value).apply();
-            compare();
-        }));
-        content.addView(ui.text("Depth", 14, MobileUi.MUTED, false));
-        content.addView(new MobileUi.Stepper(ui, 1, 60, depth, value -> {
-            depth = value;
-            preferences.edit().putInt("depth", value).apply();
-            compare();
-        }));
-        ui.gap(content, 12);
-        content.addView(ui.text("Moves to compare (0 off)", 14, MobileUi.MUTED, false));
+        content.addView(ui.text("Moves to compare", 14, MobileUi.MUTED, false));
         content.addView(new MobileUi.Stepper(ui, 0, 6, count, value -> {
             count = value;
             preferences.edit().putInt("count", value).apply();
             compare();
         }));
-        ui.gap(content, 8);
-        content.addView(ui.text("Change from the current estimate, in pawns for the side to move.",
-                               13, MobileUi.MUTED, false));
+        LinearLayout advanced = ui.column();
+        advanced.setVisibility(View.GONE);
+        content.addView(ui.button("Scoring settings", false,
+                () -> advanced.setVisibility(advanced.isShown() ? View.GONE : View.VISIBLE)));
+        content.addView(advanced);
+        String[] enginesList = catalog.stream().map(EngineCatalog.Entry::name).toArray(String[]::new);
+        advanced.addView(ui.choice("Scoring engine", enginesList, selected, index -> {
+            scorer = catalog.get(index).id();
+            preferences.edit().putString("engine", scorer).apply();
+            compare();
+        }));
+        ui.gap(advanced, 8);
+        advanced.addView(ui.choice("Search limit", LIMITS, List.of(LIMITS).indexOf(mode), index -> {
+            mode = LIMITS[index];
+            preferences.edit().putString("mode", mode).apply();
+            compare();
+        }));
+        ui.gap(advanced, 8);
+        advanced.addView(ui.text("Time budget (ms)", 14, MobileUi.MUTED, false));
+        advanced.addView(new MobileUi.Stepper(ui, 50, 30000, timeMs, 50, value -> {
+            timeMs = value;
+            preferences.edit().putInt("time_ms", value).apply();
+            compare();
+        }));
+        advanced.addView(ui.text("Depth", 14, MobileUi.MUTED, false));
+        advanced.addView(new MobileUi.Stepper(ui, 1, 60, depth, value -> {
+            depth = value;
+            preferences.edit().putInt("depth", value).apply();
+            compare();
+        }));
+        advanced.addView(ui.toggle("Score arrows", "", preferences.getBoolean("score_arrows", true), enabled -> {
+            preferences.edit().putBoolean("score_arrows", enabled).apply(); compare();
+        }));
+        advanced.addView(ui.toggle("Gains only", "", preferences.getBoolean("gains_only", false), enabled -> {
+            preferences.edit().putBoolean("gains_only", enabled).apply(); compare();
+        }));
         ui.gap(content, 10);
         status = ui.text("", 14, MobileUi.FG, true);
         content.addView(status);
@@ -104,7 +114,7 @@ final class MoveAdvantageDialog implements AutoCloseable {
         content.addView(results);
         preview = new StudioBoard(activity);
         preview.maximumSide(260);
-        preview.setContentDescription("Positive gain arrows");
+        preview.setContentDescription("Move advantage score arrows");
         preview.setVisibility(android.view.View.GONE);
         content.addView(preview);
         engines = new LocalEngines();
@@ -164,7 +174,21 @@ final class MoveAdvantageDialog implements AutoCloseable {
                         session.recommend(activity, board, limits.override(Map.of("moves", moves)),
                                 () -> ticket == generation, null).lines();
                 PhoneEngine.Line current = baseline.lines().get(0);
-                activity.runOnUiThread(() -> display(ticket, name, board, current, lines));
+                Float expected = null;
+                Map<String,Float> after = new HashMap<>();
+                if (EngineCatalog.get(engine).policy()) {
+                    PhoneSettings evaluate = limits.override(Map.of("evaluator", engine, "evaluation_enabled", true));
+                    if (ticket != generation) return;
+                    expected = session.evaluate(activity, board, evaluate).whiteShare();
+                    for (PhoneEngine.Line line : lines) {
+                        if (ticket != generation) return;
+                        ChessPosition child = board.play(line.move());
+                        if (!child.legal().isEmpty()) after.put(line.move(), session.evaluate(activity, child, evaluate).whiteShare());
+                        else after.put(line.move(), child.inCheck(child.white) ? (child.white ? 0f : 1f) : .5f);
+                    }
+                }
+                Float positionScore = expected;
+                activity.runOnUiThread(() -> display(ticket, name, board, current, lines, positionScore, after));
             } catch (CancellationException ignored) {
             } catch (Exception error) {
                 activity.runOnUiThread(() -> {
@@ -175,25 +199,55 @@ final class MoveAdvantageDialog implements AutoCloseable {
     }
 
     private void display(int ticket, String name, ChessPosition board, PhoneEngine.Line current,
-                         List<PhoneEngine.Line> lines) {
+                         List<PhoneEngine.Line> lines, Float expected, Map<String,Float> after) {
         if (ticket != generation) return;
         int sign = board.white ? 1 : -1;
-        status.setText(name + " · " + (board.white ? "White" : "Black") + " to move\nCurrent " + score(current, sign));
+        String baseline = expected == null ? score(current, sign) : percentage(expected, board.white);
+        status.setText("Position now · " + baseline + "\n" + name + " · " + (board.white ? "White" : "Black") + " to move");
+        results.addView(scoreRow("Move", "After", "Change", MobileUi.MUTED, true));
         List<StudioBoard.Arrow> gains = new ArrayList<>();
         for (PhoneEngine.Line line : lines) {
-            if (line.cp() == null && line.mate() == null) continue;
-            String delta = change(current, line, sign);
-            if (delta.startsWith("+")) gains.add(new StudioBoard.Arrow(line.move(), 0xff53c6df, delta));
-            ui.gap(results, 7);
-            results.addView(ui.text(board.notation(line.move()) + "   " + score(line, sign)
-                    + " after   " + delta + " change", 15, MobileUi.FG, false));
+            Float estimate = after.get(line.move());
+            if (estimate == null && line.cp() == null && line.mate() == null) continue;
+            String delta = estimate == null ? change(current, line, sign)
+                    : String.format(Locale.ROOT, "%+.1f pp", 100 * sign * (estimate - expected));
+            String score = estimate == null ? score(line, sign) : percentage(estimate, board.white);
+            String label = delta;
+            if ("Mate changes".equals(delta)) {
+                label = line.mate() == null ? "—" :
+                        (line.mate() * sign > 0 ? "+M" : "−M") + Math.abs(line.mate());
+            }
+            if (!"—".equals(label) && preferences.getBoolean("score_arrows", true)
+                    && (!preferences.getBoolean("gains_only", false) || label.startsWith("+")))
+                gains.add(new StudioBoard.Arrow(line.move(), 0xff53c6df, label));
+            int color = delta.startsWith("+") ? 0xff87e4ca : delta.startsWith("-") ? 0xffffb1c5 : MobileUi.MUTED;
+            results.addView(scoreRow(board.notation(line.move()), score, delta, color, false));
         }
         if (!gains.isEmpty()) {
             preview.position(board, board.white);
             preview.hints(-1, gains);
             preview.setVisibility(android.view.View.VISIBLE);
         }
-        if (results.getChildCount() == 0) status.setText(name + " did not return scored moves.");
+        if (results.getChildCount() == 1) status.setText(name + " did not return scored moves.");
+    }
+
+    private LinearLayout scoreRow(String move, String after, String change, int color, boolean heading) {
+        LinearLayout row = new LinearLayout(activity);
+        row.setPadding(ui.dp(8), ui.dp(8), ui.dp(8), ui.dp(8));
+        if (!heading && results.getChildCount() % 2 == 1) row.setBackgroundColor(0xff272036);
+        TextView first = ui.text(move, 14, heading ? MobileUi.MUTED : MobileUi.FG, true);
+        TextView second = ui.text(after, 14, heading ? MobileUi.MUTED : MobileUi.FG, false);
+        TextView third = ui.text(change, 14, color, true);
+        second.setGravity(Gravity.END);
+        third.setGravity(Gravity.END);
+        for (TextView field : new TextView[]{first, second, third}) {
+            row.addView(field, new LinearLayout.LayoutParams(0, -2, 1));
+        }
+        return row;
+    }
+
+    private static String percentage(float value, boolean white) {
+        return String.format(Locale.ROOT, "%.1f%%", 100 * (white ? value : 1f - value));
     }
 
     static String score(PhoneEngine.Line line, int sign) {

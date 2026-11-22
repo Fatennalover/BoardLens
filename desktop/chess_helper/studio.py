@@ -59,6 +59,7 @@ QPushButton[toggle="true"] { background:#272137; border:1px solid #43365a; }
 QPushButton[toggle="true"]:checked { background:#c7affb; color:#24173a; border-color:#d5c2ff; }
 QPushButton[toggle="true"]:hover { border-color:#b79be8; }
 QTabBar::tab { color:#c6bed9; background:#1a1828; padding:9px 16px; }
+QTabWidget#boardAnalysisTabs QTabBar::tab { padding:9px 7px; }
 QTabBar::tab:selected { color:#eee3ff; background:#2d2244; border-bottom:2px solid #b991f5; }
 QTextBrowser, QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {
     color:#f2edf9; background:#211c30; border:1px solid #403656; border-radius:7px;

@@ -75,6 +75,7 @@ class MoveAdvantage(QWidget):
             self.engine.addItem(item.label, index)
         self.count = QSpinBox()
         self.count.setRange(0, MAX_MOVES)
+        self.count.setMaximumWidth(76)
         self.count.setSpecialValueText("Off")
         self.count.setToolTip("Number of moves ranked by this engine, independent of Analysis candidates.")
         self.mode = QComboBox()
@@ -87,7 +88,7 @@ class MoveAdvantage(QWidget):
         self.seconds.setSingleStep(.1)
         self.seconds.setSuffix(" s")
         self.seconds.setKeyboardTracking(False)
-        self.seconds.setToolTip("Time budget per search for the scoring engine.")
+        self.seconds.setToolTip("Total search time for the scoring engine. Model predictions use inference instead.")
         self.depth = QSpinBox()
         self.depth.setAccessibleName("Scoring search depth")
         self.depth.setRange(1, 60)
@@ -95,13 +96,15 @@ class MoveAdvantage(QWidget):
         self.depth.setKeyboardTracking(False)
         self.depth.setToolTip("How many plies ahead the scoring engine searches.")
         self.inference_note = QLabel("Uses one model prediction per search.")
-        self.show_scores = ToggleButton("Gain arrows")
-        self.show_scores.setToolTip("Show an arrow with the estimated gain for moves with a positive change.")
-        self.score_color = ArrowColorButton("#53c6df", "Gain arrow color")
+        self.show_scores = ToggleButton("Score arrows")
+        self.positive_only = ToggleButton("Gains only")
+        self.show_scores.setToolTip("Show the scoring engine’s estimated change on each compared move.")
+        self.positive_only.setToolTip("Show score arrows only for moves that increase the estimate.")
+        self.score_color = ArrowColorButton("#53c6df", "Score arrow color")
         self.show_scores.toggled.connect(self.redraw)
+        self.positive_only.toggled.connect(self.redraw)
         self.score_color.color_changed.connect(self.redraw)
         options.addRow("Scoring engine", self.engine)
-        options.addRow("Moves to compare", self.count)
         options.addRow("Search limit", self.mode)
         limits = QHBoxLayout()
         limits.setSpacing(8)
@@ -115,31 +118,41 @@ class MoveAdvantage(QWidget):
         limits.addWidget(self.depth, 1)
         options.addRow(limits)
         options.addRow(self.inference_note)
-        content.addLayout(options)
-
-        label_style = QDialog(self)
-        label_style.setWindowTitle("Gain arrow style")
-        label_style.setModal(True)
-        style_form = QFormLayout(label_style)
-        style_form.addRow("Arrow color", self.score_color)
+        options.addRow("Score arrow color", self.score_color)
+        options.addRow(self.show_scores)
+        options.addRow(self.positive_only)
+        settings = QDialog(self)
+        settings.setWindowTitle("Move advantage settings")
+        settings.setModal(True)
+        settings.resize(420, 320)
+        settings_layout = QVBoxLayout(settings)
+        settings_layout.addLayout(options)
         done = QPushButton("Done")
-        done.clicked.connect(label_style.accept)
-        style_form.addRow(done)
+        done.clicked.connect(settings.accept)
+        settings_layout.addWidget(done, alignment=Qt.AlignmentFlag.AlignRight)
 
-        display = QHBoxLayout()
-        display.addWidget(self.show_scores, 1)
-        style_button = QPushButton("Arrow style…")
-        style_button.clicked.connect(label_style.show)
-        display.addWidget(style_button)
-        content.addLayout(display)
+        controls = QHBoxLayout()
+        count_label = QLabel("Moves to compare")
+        count_label.setBuddy(self.count)
+        controls.addWidget(count_label)
+        controls.addWidget(self.count)
+        controls.addStretch()
+        self.settings_button = QPushButton("Settings…")
+        self.settings_button.setAccessibleName("Move advantage settings")
+        self.settings_button.clicked.connect(settings.show)
+        controls.addWidget(self.settings_button)
+        content.addLayout(controls)
 
         self.output = QTextBrowser()
+        self.output.setObjectName("analysisDocument")
+        self.output.document().setDocumentMargin(0)
         self.output.setAccessibleName("Move advantage results")
         self.output.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.output.document().documentLayout().documentSizeChanged.connect(
-            lambda size: self.output.setMinimumHeight(max(118, math.ceil(size.height()) + 10))
+            lambda size: self.output.setFixedHeight(max(80, math.ceil(size.height()) + 18))
         )
-        content.addWidget(self.output, 1)
+        content.addWidget(self.output)
+        content.addStretch()
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(ResponsiveScrollArea(page))
         self.completed.connect(self.finish)
@@ -149,7 +162,7 @@ class MoveAdvantage(QWidget):
         self.seconds.valueChanged.connect(self.changed)
         self.depth.valueChanged.connect(self.changed)
         self.update_search_controls()
-        self.output.setPlainText("Choose how many moves to compare.")
+        self.output.setPlainText("Choose 1–6 moves to compare.")
 
     def restore_limits(self, settings):
         with QSignalBlocker(self.mode), QSignalBlocker(self.seconds), QSignalBlocker(self.depth):
@@ -179,11 +192,23 @@ class MoveAdvantage(QWidget):
     def marks(self, board):
         if not self.show_scores.isChecked() or not self.result or self.result["fen"] != board.fen():
             return []
-        return [
-            {"square": chess.Move.from_uci(row["uci"]).to_square, "kind": "gain_arrow",
-             "move": row["uci"], "color": self.score_color.color, "label": row["change"]}
-            for row in self.result["rows"] if row.get("uci") and row["change"].startswith("+")
-        ]
+        marks = []
+        for row in self.result["rows"]:
+            uci = row.get("uci")
+            change = row["change"]
+            if not uci or change == "—":
+                continue
+            if change == "Mate changes":
+                score = row["score"]
+                if score.startswith(("Mate in ", "Mated in ")):
+                    change = ("+M" if score.startswith("Mate in ") else "−M") + score.split()[-1]
+                else:
+                    continue
+            if self.positive_only.isChecked() and not change.startswith("+"):
+                continue
+            marks.append({"square": chess.Move.from_uci(uci).to_square, "kind": "gain_arrow",
+                          "move": uci, "color": self.score_color.color, "label": change})
+        return marks
 
     def changed(self, *_):
         self.update_search_controls()
@@ -197,7 +222,7 @@ class MoveAdvantage(QWidget):
         board = w.tracker.board if w.editable_position or w._reviewing or w._screen_confirmed else None
         if not count or board is None or not board.is_valid() or board.is_game_over() or w.game_ended:
             self.clear()
-            self.output.setPlainText("Choose how many moves to compare." if not count else "Waiting for a playable position.")
+            self.output.setPlainText("Choose 1–6 moves to compare." if not count else "Waiting for a playable position.")
             return
         index = self.engine.currentData()
         entry = engine_library.ENTRIES[index]
@@ -215,6 +240,7 @@ class MoveAdvantage(QWidget):
         except (ValueError, OSError) as error:
             self.output.setPlainText(str(error))
             return
+        prediction = engine_config.is_human(w, index)
         self.output.setPlainText(f"Comparing moves with {entry.label}…")
         self.job = job = EngineJob()
         job.session = self.session
@@ -223,10 +249,15 @@ class MoveAdvantage(QWidget):
 
         def search():
             try:
-                baseline = job.run(command, board, limits)
+                timed_comparison = count > 1 and limits.mode != "Depth" and not prediction and entry.kind not in ("tiny", "toby")
+                baseline_limits = replace(limits, seconds=limits.seconds * .4) if timed_comparison else limits
+                baseline = job.run(command, board, baseline_limits)
                 if job.cancelled.is_set():
                     return
-                result = baseline if count == 1 else job.run(command, board, replace(limits, multipv=count))
+                remaining = limits.seconds - baseline.get("elapsed", 0.) if timed_comparison else limits.seconds
+                result = baseline
+                if count > 1 and remaining >= .005:
+                    result = job.run(command, board, replace(limits, seconds=remaining, multipv=count))
                 if job.cancelled.is_set():
                     return
                 lead = dict(baseline.get("evaluation") or baseline["lines"][0])
@@ -282,17 +313,20 @@ class MoveAdvantage(QWidget):
         baseline = escape(result["baseline"])
         rows = []
         for index, row in enumerate(result["rows"]):
-            background = "#29213a" if index % 2 == 0 else "#241d32"
+            background = "#231e34" if index % 2 == 0 else "#1a1828"
+            change = row["change"]
+            change_color = "#87e4ca" if change.startswith("+") else "#ffb1c5" if change.startswith("-") else "#cbbce3"
             rows.append(
                 f'<tr bgcolor="{background}"><td><strong>{escape(row["move"])}</strong></td>'
                 f'<td align="right">{escape(row["score"])}</td>'
-                f'<td align="right">{escape(row["change"])}</td></tr>'
+                f'<td align="right" style="color:{change_color}"><strong>{escape(change)}</strong></td></tr>'
             )
         status = "<p>This engine supplies moves without a numeric score.</p>" if all(
             row["score"] == "—" for row in result["rows"]) else ""
         self.output.setHtml(
-            f'<p><strong>{engine}</strong><br>{side} to move · Current {baseline}</p>{status}'
-            '<table width="100%" cellspacing="0" cellpadding="5" style="color:#f4ecff;">'
+            f'<p style="font-size:20px"><strong>Position now · {baseline}</strong></p>'
+            f'<p style="color:#cbbce3">{engine} · {side} to move</p>{status}'
+            '<table width="100%" cellspacing="0" cellpadding="8" style="color:#f4ecff;">'
             '<tr style="color:#cbbce3;"><th align="left">Move</th><th align="right">After</th>'
             f'<th align="right">Change</th></tr>{"".join(rows)}</table>'
         )

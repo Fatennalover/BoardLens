@@ -77,6 +77,7 @@ class EngineJob:
         self.lock = threading.Lock()
         self.session=None
         self.on_update=None
+        self.reply_for_every_move = False
 
     def cancel(self):
         self.cancelled.set()
@@ -113,8 +114,17 @@ class EngineJob:
         for line in result['lines']:
             existing=line.get('pv_moves') or [line['move']]
             if len(existing)>target:line.update(describe_continuation(board,existing[:target]))
+        deadline = time.monotonic() + budget
+        if self.reply_for_every_move and target > 1:
+            self._fill_candidate_replies(engine, board, settings, result, deadline)
+            if self.cancelled.is_set():
+                return None
         lead=result['lines'][0]
-        if len(lead.get('pv_moves',[]))>=target:return result
+        if len(lead.get('pv_moves',[]))>=target:
+            if self.reply_for_every_move:
+                result['primary_elapsed'] = result.get('elapsed', 0.)
+                result['elapsed'] = time.monotonic() - pipeline_started
+            return result
         # One-move providers can still predict a continuation. Publish the
         # current move first; subsequent positions never replace its identity.
         if self.on_update:self.on_update(dict(deepcopy(result),continuation_pending=True,primary_complete=True))
@@ -124,13 +134,18 @@ class EngineJob:
             if move not in probe.legal_moves:return result
             probe.push(move)
         callback=self.on_update;self.on_update=None
-        deadline=time.monotonic()+budget;prediction_error=''
+        prediction_error = ''
+        budget_exhausted = False
+        single_prediction = settings.engine_kind in ('maia3', 'maia2', 'maia1', 'neural', 'allie')
+        estimated_pass = result.get('elapsed', 0.) if single_prediction else 0.
         try:
             while len(moves)<target and not probe.is_game_over() and not self.cancelled.is_set():
                 remaining=deadline-time.monotonic()
-                if remaining<=0:break
-                # This is a follow-up budget, never a delay or a pretend Maia
-                # search depth. A model pass already in progress may finish.
+                if remaining <= 0 or remaining < estimated_pass:
+                    budget_exhausted = True
+                    break
+                # A model pass already in progress can finish after the budget.
+                # Use the last pass to decide whether another fits.
                 followup=replace(settings,multipv=1,predict_continuations=False,
                                  seconds=min(settings.seconds,remaining),
                                  mode='Time + depth' if settings.mode=='Depth' else settings.mode)
@@ -138,6 +153,8 @@ class EngineJob:
                 except (ValueError,chess.engine.EngineError) as error:
                     prediction_error=str(error);break
                 if not next_result:break
+                if single_prediction:
+                    estimated_pass = next_result.get('elapsed', estimated_pass)
                 move=chess.Move.from_uci(next_result['lines'][0]['move'])
                 if move not in probe.legal_moves:break
                 moves.append(move.uci());probe.push(move)
@@ -148,8 +165,58 @@ class EngineJob:
         refreshed=describe_continuation(board,moves)
         result['lines'][0].update(refreshed);result['continuation_pending']=False;result['primary_elapsed']=result.get('elapsed',0);result['elapsed']=time.monotonic()-pipeline_started
         result['prediction']={'requested_plies':target,'completed_plies':len(moves),
-                              'reply_budget':budget,'error':prediction_error,'budget_exhausted':len(moves)<target and time.monotonic()>=deadline}
+                              'reply_budget':budget,'error':prediction_error,'budget_exhausted':len(moves)<target and (budget_exhausted or time.monotonic()>=deadline)}
         return result
+
+    def _fill_candidate_replies(self, engine, board, settings, result, deadline):
+        pending = []
+        for line in result["lines"]:
+            if line.get("reply_simple"):
+                continue
+            probe = board.copy()
+            try:
+                probe.push_uci(line["move"])
+            except ValueError:
+                line["reply_status"] = "Engine returned no reply"
+                continue
+            outcome = probe.outcome()
+            if outcome:
+                line["reply_status"] = "Checkmate" if probe.is_checkmate() else "The game ends here"
+            else:
+                pending.append((line, probe))
+        if not pending:
+            return
+
+        callback, self.on_update = self.on_update, None
+        human = settings.engine_kind in ("maia3", "maia2", "maia1", "neural", "allie")
+        estimated_pass = result.get("elapsed", 0.) if human else 0.
+        try:
+            for index, (line, probe) in enumerate(pending):
+                if self.cancelled.is_set():
+                    break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0 or remaining < estimated_pass:
+                    line["reply_status"] = "Reply budget reached"
+                    continue
+                if callback:
+                    callback(dict(deepcopy(result), continuation_pending=True, primary_complete=True))
+                followup = replace(settings, multipv=1, predict_continuations=False,
+                                   seconds=min(settings.seconds, remaining / (len(pending) - index)),
+                                   mode="Time + depth" if settings.mode == "Depth" else settings.mode)
+                try:
+                    reply = self._search_once(engine, probe, followup)
+                    if reply:
+                        move = chess.Move.from_uci(reply["lines"][0]["move"])
+                        if move in probe.legal_moves:
+                            line.update(describe_continuation(board, [line["move"], move.uci()]))
+                            if human:
+                                estimated_pass = reply.get("elapsed", estimated_pass)
+                            continue
+                except (ValueError, chess.engine.EngineError):
+                    pass
+                line["reply_status"] = "Engine returned no reply"
+        finally:
+            self.on_update = callback
 
     def _search_once(self,engine,board,settings):
         if self.cancelled.is_set():
@@ -253,7 +320,7 @@ def search_limit(settings,board=None):
         moves=board.legal_moves.count() if board else 25
         tactical=bool(board and (board.is_check() or any(board.is_capture(move) for move in board.legal_moves)))
         factor=min(1.,.35+moves/90+(.2 if tactical else 0))
-        return chess.engine.Limit(time=max(.1,settings.seconds*factor),depth=min(settings.depth,max(6,8+moves//8+(2 if tactical else 0))))
+        return chess.engine.Limit(time=min(settings.seconds,max(.1,settings.seconds*factor)),depth=min(settings.depth,max(6,8+moves//8+(2 if tactical else 0))))
     return chess.engine.Limit(time=settings.seconds if settings.mode != "Depth" else None,
                               depth=settings.depth if settings.mode != "Time" else None)
 

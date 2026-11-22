@@ -17,7 +17,7 @@ class LiveHintFilter:
         if result is self.last_input:return self.displayed
         self.last_input=result;now=time.monotonic() if now is None else now
         key=self.signature(result)
-        if (self.displayed is None or not result.get('provisional')
+        if (self.displayed is None or not result.get('provisional') or result.get('primary_complete')
                 or len(key) > len(self.displayed['lines']) or key == self.signature(self.displayed)):
             self.displayed=deepcopy(result);self.pending=None
         elif key!=self.pending:self.pending=key;self.since=now

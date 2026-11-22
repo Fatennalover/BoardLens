@@ -184,13 +184,9 @@ public final class PracticeActivity extends Activity {
       page.addView(ui.button("Review game", false, this::openReview));
     }
     ui.gap(page, 8);
-    coach = new CoachPanel(this, ui, settings);
-    row(page, ui.button("Coach", false, () -> coach.options(() -> {
-        render();
-        if (!reviewing && coach.count() > 0) suggest();
-    })),
+    if (coach == null) coach = new CoachPanel(this, ui);
+    row(page, ui.button("Coach", false, () -> coach.show(position(), whiteBottom)),
         ui.button("Move advantage", false, this::showMoveAdvantage));
-    page.addView(coach.view(), new LinearLayout.LayoutParams(-1, ui.dp(182)));
     MobileUi.inset(this, root);
     setContentView(root);
     updateTurn();
@@ -252,7 +248,7 @@ public final class PracticeActivity extends Activity {
       String provider = chosen.provider();
       for (EngineCatalog.Entry profile : EngineCatalog.ALL)
         if (profile.id().equals(provider)) { provider = profile.name(); break; }
-      LocalEngines.Evaluated evaluated = LocalEngines.score(provider, best);
+      LocalEngines.Evaluated evaluated = LocalEngines.orient(LocalEngines.score(provider, best), whiteBottom);
       share = evaluated.whiteShare();
       if (!reviewing) practiceShare = share;
       displayed = (best.cp() == null && best.mate() == null ? provider : evaluated.text())
@@ -275,9 +271,7 @@ public final class PracticeActivity extends Activity {
     evaluation.setVisibility(settings.evaluationEnabled() ? View.VISIBLE : View.GONE);
     evaluation.setProgress(Math.round(share * 1000), true);
     score.setText(displayed);
-    coach.render(board, result.isEmpty() ? chosen : null, null, true,
-        result.isEmpty() ? (reviewing ? "Analyze this game to get coaching." :
-            "Use Suggest to get coaching for this position.") : result);
+    coach.update(board, whiteBottom);
     score.setVisibility(displayed.isEmpty() ? View.GONE : View.VISIBLE);
     engine.setText(EngineCatalog.get(engineId).name());
     engine.setEnabled(!busy);
@@ -456,7 +450,7 @@ public final class PracticeActivity extends Activity {
   private void suggest() {
     ChessPosition board = played.last();
     if (!PracticeLine.outcome(board, false).isEmpty() || !engineReady()) return;
-    PhoneSettings limits = coach.withCandidates(settings.override(Map.of("engine", engineId)));
+    PhoneSettings limits = settings.override(Map.of("engine", engineId));
     int ticket = begin("Analyzing with " + EngineCatalog.get(engineId).name() + "…");
     if (settings.arrows()) {
       extraEngines.request(this, board, limits, uiHandler, () -> {
@@ -509,8 +503,7 @@ public final class PracticeActivity extends Activity {
   private void reviewSearch(boolean simulate) {
     if (!engineReady()) return;
     String name = EngineCatalog.get(engineId).name();
-    PhoneSettings limits = coach.withCandidates(
-        settings.override(Map.of("engine", engineId, "moves", 1, "predict", false)));
+    PhoneSettings limits = settings.override(Map.of("engine", engineId, "moves", 1, "predict", false));
     List<ChessPosition> positions = new ArrayList<>();
     if (simulate) {
       ChessPosition start = position();
@@ -618,6 +611,7 @@ public final class PracticeActivity extends Activity {
   }
   @Override protected void onDestroy() {
     if (moveAdvantage != null) moveAdvantage.close();
+    if (coach != null) coach.close();
     cancel();
     extraEngines.close();
     worker.execute(engines::close);

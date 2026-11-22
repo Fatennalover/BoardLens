@@ -135,7 +135,7 @@ def test_move_preset_updates_arrow_count_and_visibility(qt):
     finally:w.close()
 
 
-def test_companion_arrow_count_and_positive_gain_share_current_board(qt):
+def test_companion_arrow_count_and_scores_share_current_board(qt):
     w = MainWindow()
     try:
         w.source.setCurrentIndex(0)
@@ -148,7 +148,10 @@ def test_companion_arrow_count_and_positive_gain_share_current_board(qt):
             {"move": "d4", "uci": "d2d4", "score": "+0.01", "change": "-0.01"},
         ]}
         svg = w.phone.snapshot()["boards"][0]["svg"]
-        assert ">+0.08</text>" in svg and ">-0.01</text>" not in svg
+        assert ">+0.08</text>" in svg and ">-0.01</text>" in svg
+        w.phone.apply_settings({"advantage_positive_only": True})
+        filtered = w.phone.snapshot()["boards"][0]["svg"]
+        assert ">+0.08</text>" in filtered and ">-0.01</text>" not in filtered
         next_board = board.copy()
         next_board.push_uci("e2e4")
         w.set_position(next_board)
