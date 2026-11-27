@@ -5,6 +5,7 @@ import android.app.AlertDialog;
 import android.os.Handler;
 import android.os.Looper;
 import android.widget.ArrayAdapter;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -165,39 +166,46 @@ final class CoachPanel implements AutoCloseable {
         } else {
             PhoneEngine.Line lead = result.lines().get(0);
             LocalEngines.Evaluated score = LocalEngines.orient(LocalEngines.score(result.provider(), lead), whiteBottom);
-            status.setText(score.text());
+            boolean showEvaluation = settings.p.getBoolean("show_evaluation", true);
+            boolean showReply = settings.p.getBoolean("show_reply", true);
+            int requested = settings.p.getInt("prediction_plies", 2);
+            int moveColor = android.graphics.Color.parseColor(settings.p.getString("move_color", "#eab1ff"));
+            int replyColor = android.graphics.Color.parseColor(settings.p.getString("reply_color", "#76e3dc"));
+            status.setText(showEvaluation ? score.text() : "Suggestions from " + result.provider());
             for (PhoneEngine.Line line : result.lines()) {
                 String move = line.move();
                 if (!board.legal().contains(move)) continue;
-                String response = settings.p.getInt("prediction_plies", 2) > 1 ? reply(board, line) : "";
+                String response = showReply && requested > 1 ? reply(board, line) : "";
                 ChessPosition after = board.play(move);
                 boolean active = selected.equals(move);
                 LinearLayout row = ui.card();
                 if (active) {
                     row.getBackground().setTint(0xff493864);
-                    arrows.add(new StudioBoard.Arrow(move, MOVE_COLOR));
-                    if (!response.isEmpty()) arrows.add(new StudioBoard.Arrow(response, REPLY_COLOR, true));
+                    arrows.add(new StudioBoard.Arrow(move, moveColor));
+                    if (!response.isEmpty()) arrows.add(new StudioBoard.Arrow(response, replyColor, true));
                 }
-                String moveScore = MoveAdvantageDialog.score(line, whiteBottom ? 1 : -1);
-                row.addView(ui.text(board.notation(move) + "  " + moveScore, 16, MobileUi.FG, true));
+                String moveScore = showEvaluation ? "  " + MoveAdvantageDialog.score(line, whiteBottom ? 1 : -1) : "";
+                row.addView(ui.text(board.notation(move) + moveScore, 16, MobileUi.FG, true));
                 row.addView(ui.text(board.simple(move), 13, MobileUi.FG, false));
-                if (settings.p.getInt("prediction_plies", 2) > 1) {
+                if (showReply && requested > 1) {
                     String replyText = !response.isEmpty() ? "Likely reply · " + after.notation(response)
                             : after.legal().isEmpty() ? (after.inCheck(after.white) ? "Checkmate" : "Game ends here")
                             : "No reply within the budget";
                     row.addView(ui.text(replyText, 13, REPLY_COLOR, false));
                 }
-                if (line.pv().size() > 2 && settings.p.getInt("prediction_plies", 2) > 2) {
+                if (showReply && line.pv().size() > 2 && requested > 2) {
                     List<String> moves = new ArrayList<>();
                     ChessPosition position = board;
                     for (String ply : line.pv().subList(0, Math.min(line.pv().size(),
-                            settings.p.getInt("prediction_plies", 2)))) {
+                            requested))) {
                         if (!position.legal().contains(ply)) break;
                         moves.add(position.notation(ply));
                         position = position.play(ply);
                     }
                     row.addView(ui.text("Line · " + String.join(" → ", moves), 13, MobileUi.MUTED, false));
                 }
+                if (showReply && line.pv().size() < requested)
+                    row.addView(ui.text(line.pv().size()+" of "+requested+" plies available", 12, MobileUi.MUTED, false));
                 row.setFocusable(true);
                 row.setOnClickListener(view -> {
                     selected = selected.equals(move) ? "" : move;
@@ -232,8 +240,12 @@ final class CoachPanel implements AutoCloseable {
         EditText strength = number(page, "Stockfish skill · 20 is full strength", settings.skill(), false);
         EditText rating = number(page, "Human model rating", settings.rating(), false);
         EditText threads = number(page, "CPU threads", settings.threads(), false);
-        EditText plies = number(page, "Predicted line length · 1 skips replies", settings.p.getInt("prediction_plies", 2), false);
+        EditText plies = number(page, "Lookahead · one ply is one side’s move", settings.p.getInt("prediction_plies", 2), false);
         EditText replyTime = number(page, "Reply budget · seconds", settings.p.getFloat("prediction_seconds", .55f), true);
+        CheckBox showReply = flag(page, "Show opponent replies", "show_reply");
+        CheckBox showEvaluation = flag(page, "Show Coach evaluation", "show_evaluation");
+        EditText moveColor = color(page, "Move arrow color", "move_color", MOVE_COLOR);
+        EditText replyColor = color(page, "Reply arrow color", "reply_color", REPLY_COLOR);
         AlertDialog options = new AlertDialog.Builder(activity).setTitle("Coach settings").setView(scroll)
                 .setPositiveButton("Save", null).setNegativeButton("Cancel", null).create();
         options.setOnShowListener(ignored -> options.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
@@ -247,8 +259,10 @@ final class CoachPanel implements AutoCloseable {
                     .putInt("skill", (int)read(strength, 0, 20))
                     .putInt("rating", (int)read(rating, 600, 2600))
                     .putInt("threads", (int)read(threads, 1, 8))
-                    .putInt("prediction_plies", (int)read(plies, 1, 12))
-                    .putFloat("prediction_seconds", read(replyTime, .1f, 60)).apply();
+                    .putInt("prediction_plies", (int)read(plies, 1, PhoneSettings.MAX_LOOKAHEAD_PLIES))
+                    .putFloat("prediction_seconds", read(replyTime, .1f, 60))
+                    .putBoolean("show_reply", showReply.isChecked()).putBoolean("show_evaluation", showEvaluation.isChecked())
+                    .putString("move_color", validColor(moveColor)).putString("reply_color", validColor(replyColor)).apply();
                 options.dismiss();
                 analyze();
             } catch (NumberFormatException invalid) { /* Error is displayed at the field. */ }
@@ -261,6 +275,31 @@ final class CoachPanel implements AutoCloseable {
             if (entries.get(i).id().equals(settings.engine())) return i;
         }
         return 0;
+    }
+
+    private CheckBox flag(LinearLayout page, String label, String key) {
+        CheckBox field = new CheckBox(activity);
+        field.setText(label);
+        field.setChecked(settings.p.getBoolean(key, true));
+        page.addView(field);
+        return field;
+    }
+
+    private EditText color(LinearLayout page, String label, String key, int fallback) {
+        page.addView(ui.text(label, 13, MobileUi.MUTED, true));
+        EditText field = new EditText(activity);
+        field.setSingleLine(true);
+        field.setContentDescription(label);
+        field.setText(settings.p.getString(key, String.format(Locale.ROOT,"#%06x", fallback & 0xffffff)));
+        page.addView(field);
+        return field;
+    }
+
+    private static String validColor(EditText field) {
+        String value = field.getText().toString().trim();
+        if (value.matches("#[0-9a-fA-F]{6}")) return value;
+        field.setError("Enter a color like #76e3dc");
+        throw new NumberFormatException();
     }
 
     private Spinner choices(LinearLayout page, String title, String[] names, int selectedIndex) {

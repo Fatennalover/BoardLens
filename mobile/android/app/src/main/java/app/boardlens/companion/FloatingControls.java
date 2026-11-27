@@ -566,11 +566,11 @@ final class FloatingControls {
     }
     toggle(page, "Predict replies", "predict", true, this::showBoardOptions);
     if (settings.predict())
-      number(page, "Prediction length", "prediction_plies", settings.predictionPlies(), 1, 12, 1);
+      number(page, "Lookahead (plies)", "prediction_plies", settings.predictionPlies(), 1, PhoneSettings.MAX_LOOKAHEAD_PLIES, 1);
     toggle(page, "Show moves while thinking", "early", true);
     if (host == null) {
       toggle(page, "Steady arrows", "steady", true);
-      toggle(page, "Lock move", "lock_move", false);
+      toggle(page, "Lock moves", "lock_move", false);
     }
   }
 

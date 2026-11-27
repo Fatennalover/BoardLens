@@ -242,13 +242,14 @@ class BoardArea(QWidget):
 
 
 class CropCanvas(QWidget):
-    def __init__(self, image, detections=None, parent=None):
+    def __init__(self, image, detections=None, parent=None, rectangular=False):
         super().__init__(parent)
         self.pixmap = bgr_pixmap(image)
         self.detections = detections or []
         self.selection = None
         self.origin = None
         self.dragging = False
+        self.rectangular = rectangular
         self.setMinimumSize(640, 400)
         self.setCursor(Qt.CursorShape.CrossCursor)
 
@@ -273,13 +274,13 @@ class CropCanvas(QWidget):
             for d in self.detections:
                 p.drawRect(QRectF(rect.x() + d.x * scale, rect.y() + d.y * scale, d.size * scale, d.size * scale))
         else:
-            x, y, size = self.selection
+            x, y, width, height = self.selection
             p.fillRect(rect, QColor(0, 0, 0, 95))
-            dest = QRectF(rect.x() + x * scale, rect.y() + y * scale, size * scale, size * scale)
-            p.drawPixmap(dest, self.pixmap, QRectF(x, y, size, size))
+            dest = QRectF(rect.x() + x * scale, rect.y() + y * scale, width * scale, height * scale)
+            p.drawPixmap(dest, self.pixmap, QRectF(x, y, width, height))
             p.setPen(QPen(QColor("#c9b1ff"), 2))
             p.drawRect(dest)
-            for i in range(1, 8):
+            for i in range(1, 8) if not self.rectangular else ():
                 p.setPen(QPen(QColor(100, 255, 170, 90), 1))
                 p.drawLine(QPointF(dest.x() + dest.width() * i / 8, dest.y()), QPointF(dest.x() + dest.width() * i / 8, dest.bottom()))
                 p.drawLine(QPointF(dest.x(), dest.y() + dest.height() * i / 8), QPointF(dest.right(), dest.y() + dest.height() * i / 8))
@@ -295,11 +296,13 @@ class CropCanvas(QWidget):
             return
         point = self.pixel(event.position())
         dx, dy = point.x() - self.origin.x(), point.y() - self.origin.y()
-        size = int(min(abs(dx), abs(dy)))
-        if size > 5:
+        width,height = int(abs(dx)),int(abs(dy))
+        if not self.rectangular:
+            width=height=min(width,height)
+        if min(width,height) > 5:
             self.dragging = True
-            self.selection = (int(self.origin.x() if dx > 0 else self.origin.x() - size),
-                              int(self.origin.y() if dy > 0 else self.origin.y() - size), size)
+            self.selection = (int(self.origin.x() if dx > 0 else self.origin.x() - width),
+                              int(self.origin.y() if dy > 0 else self.origin.y() - height), width, height)
             self.update()
 
     def mouseReleaseEvent(self, event):
@@ -309,24 +312,25 @@ class CropCanvas(QWidget):
             point = self.pixel(event.position())
             for d in self.detections:
                 if d.x <= point.x() <= d.x + d.size and d.y <= point.y() <= d.y + d.size:
-                    self.selection = (d.x, d.y, d.size)
+                    self.selection = (d.x, d.y, d.size, d.size)
                     break
         self.origin = None
         self.update()
 
 
 class CropDialog(QDialog):
-    def __init__(self, image, detections=None, parent=None):
+    def __init__(self, image, detections=None, parent=None, rectangular=False):
         super().__init__(parent)
         from PySide6.QtWidgets import QDialogButtonBox
-        self.setWindowTitle("Select the 64 squares")
+        self.setWindowTitle("Select visible squares" if rectangular else "Select the 64 squares")
         self.resize(1040, 700)
         layout = QVBoxLayout(self)
-        text = "Click a green detected board, or drag from one corner to the opposite corner. Include only the 64 squares."
+        text = ("Drag from the outer corner of the first visible square to the opposite corner of the region."
+                if rectangular else "Click a detected board, or drag from one corner to the opposite corner. Include only the 64 squares.")
         label = QLabel(text)
         label.setWordWrap(True)
         layout.addWidget(label)
-        self.canvas = CropCanvas(image, detections)
+        self.canvas = CropCanvas(image, detections, rectangular=rectangular)
         layout.addWidget(self.canvas, 1)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
@@ -334,5 +338,6 @@ class CropDialog(QDialog):
         layout.addWidget(buttons)
 
     def accept(self):
-        if self.canvas.selection and self.canvas.selection[2] >= 80:
+        minimum = 24 if self.canvas.rectangular else 80
+        if self.canvas.selection and min(self.canvas.selection[2:]) >= minimum:
             super().accept()

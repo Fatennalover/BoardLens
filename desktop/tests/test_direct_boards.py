@@ -54,6 +54,30 @@ def test_browser_reader_yields_immediately_when_switching_apps(qt):
     finally:w.close()
 
 
+def test_visible_browser_board_retains_analysis_when_another_app_gets_focus(qt):
+    w = MainWindow()
+    w.browser_reader = BrowserReader(port=0)
+    try:
+        board = {'fen': chess.STARTING_FEN, 'white_bottom': False}
+        report = {'source': 'qa', 'boards': [board], 'visible': True}
+        w.browser_reader.accept(dict(report, focused=True))
+        w.update_foreground('browser')
+        read = w.direct_reads()[0][2]
+        w._last_read = read
+        w._screen_confirmed = True
+
+        w.browser_reader.accept(dict(report, focused=False))
+        w.update_foreground('other')
+        assert w.direct_reads()[0][2].source_id == read.source_id
+        assert w._last_read is read and w._screen_confirmed
+
+        w.browser_reader.accept(dict(report, visible=False, focused=False, boards=[]))
+        w.update_foreground('other')
+        assert w.direct_reads() == [] and not w._screen_confirmed
+    finally:
+        w.close()
+
+
 def test_manual_rescan_remembers_the_other_app_while_stopped(qt,monkeypatch):
     w=MainWindow();w.browser_reader=BrowserReader(port=0)
     try:
@@ -82,3 +106,18 @@ def test_reader_reports_connection_and_pairing_repair():
         reader.rejected_at=time.monotonic()+.001
         assert 'Needs pairing' in reader.connection_status()
     finally:reader.close()
+
+
+def test_visible_peer_windows_keep_independent_and_unbounded_board_slots():
+    reader = BrowserReader(port=0)
+    try:
+        boards=[{'index':index,'fen':chess.STARTING_FEN,'white_bottom':True} for index in range(16)]
+        reader.accept({'source':'study','focused':False,'visible':True,'boards':boards})
+        reader.accept({'source':'current','focused':True,'visible':True,'boards':boards[:2]})
+        active = [read[0] for read in reader.reads()]
+        assert len(active)==18 and len(set(active))==18
+        assert active[0].startswith('browser:current:')
+        reader.accept({'source':'current','focused':False,'visible':False,'boards':[]})
+        assert len(reader.reads())==16
+    finally:
+        reader.close()

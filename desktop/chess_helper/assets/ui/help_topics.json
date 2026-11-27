@@ -529,7 +529,7 @@
       "Use Arrows → Moves to draw and rank filters to control visibility.",
       "Opponent reply shows a continuation after the best move, not a second move for the current turn."
     ],
-    "details": "Only my color, Lock move and color/rank filters can intentionally hide arrows. Rank labels identify alternatives. Dashed reply is optional; solid is the default.",
+    "details": "Only my color and the color and rank filters determine which arrows are visible. Rank labels identify alternatives. Dashed reply is optional; solid is the default.",
     "controls": [
       "arrow_count",
       "multipv",
@@ -546,15 +546,15 @@
     "id": "arrow-steady",
     "category": "Arrows and evaluation",
     "title": "Stop suggestions flickering",
-    "summary": "Steady arrows smooths intermediate replacements while analysis continues. Lock move keeps the first displayed move until the position changes.",
+    "summary": "Steady arrows smooths intermediate replacements while analysis continues. Lock moves keeps the displayed suggestions in order until the position changes.",
     "questions": [
       "Why do the recommended moves keep changing?",
       "How do I keep one arrow while the engine calculates?"
     ],
     "steps": [
       "Use Steady arrows to keep calculating with fewer visible changes.",
-      "Use Lock move when you want one fixed recommendation for the current position.",
-      "Changing the board or pressing Scan now releases that locked suggestion."
+      "Use Lock moves to keep your displayed recommendations for the current position.",
+      "Changing the board or pressing Scan now releases the locked suggestions."
     ],
     "details": "Evaluation still updates. The first hint and completed engine result are immediate; provisional replacements need to remain consistent briefly.",
     "controls": [

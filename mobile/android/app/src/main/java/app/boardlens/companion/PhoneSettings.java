@@ -84,7 +84,8 @@ final class PhoneSettings {
     return getBoolean("predict", true);
   }
 
-  int predictionPlies() { return getInt("prediction_plies", 3); }
+  static final int MAX_LOOKAHEAD_PLIES = 32;
+  int predictionPlies() { return Math.max(1, Math.min(MAX_LOOKAHEAD_PLIES, getInt("prediction_plies", 3))); }
 
   float predictionSeconds() { return getFloat("prediction_seconds", 3f); }
 

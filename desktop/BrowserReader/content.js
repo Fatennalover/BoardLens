@@ -1,8 +1,18 @@
 (()=>{
- const ns='http://www.w3.org/2000/svg',layer=document.createElementNS(ns,'svg');layer.setAttribute('data-boardlens','arrows');
- Object.assign(layer.style,{position:'fixed',inset:'0',width:'100vw',height:'100vh',pointerEvents:'none',zIndex:'2147483646'});document.documentElement.append(layer);
+ const ns='http://www.w3.org/2000/svg';
+ const host=document.createElement('div');
+ host.dataset.boardlens='overlay';
+ const shadow=host.attachShadow({mode:'open'});
+ const layer=document.createElementNS(ns,'svg');
+ layer.setAttribute('data-boardlens','arrows');
+ layer.setAttribute('aria-hidden','true');
+ Object.assign(layer.style,{display:'block',width:'100%',height:'100%',overflow:'visible'});
+ const style=document.createElement('style');
+ style.textContent=':host {all:initial!important;display:block!important;position:fixed!important;inset:0!important;pointer-events:none!important;z-index:2147483646!important}';
+ shadow.append(style,layer);
+ document.documentElement.append(host);
  const notice=document.createElement('div');notice.hidden=true;Object.assign(notice.style,{position:'fixed',bottom:'12px',left:'12px',zIndex:'2147483647',padding:'9px 12px',borderRadius:'8px',background:'#272036',color:'#fff',font:'13px system-ui',pointerEvents:'none',maxWidth:'320px'});document.documentElement.append(notice);
- const evalPanels=new Map();let savedBars={};chrome.storage.local.get('evaluationBars',v=>{savedBars=v.evaluationBars||{}});
+ const evalPanels=new Map(),confirmedHints=new Map();let savedBars={};chrome.storage.local.get('evaluationBars',v=>{savedBars=v.evaluationBars||{}});
  function clearEvaluations(){for(const panel of evalPanels.values()){panel.observer?.disconnect();panel.root.remove();}evalPanels.clear()}
  function evaluation(index,board,value){
   if(!value)return null;
@@ -156,24 +166,69 @@
   const values=offsets.map(([x,y])=>x*ux+y*uy);
   return Math.min(length,Math.max(...values))-Math.max(0,Math.min(...values))>cell*.16;
  }
+ function predictionRoute(start,end,board,move,cell,previous){
+  const route=[start];
+  const fileDistance=Math.abs(move.charCodeAt(0)-move.charCodeAt(2));
+  const rankDistance=Math.abs(Number(move[1])-Number(move[3]));
+  if(!board.projected&&fileDistance*rankDistance===2){
+   route.push(fileDistance>rankDistance?[end[0],start[1]]:[start[0],end[1]]);
+  }
+  route.push(end);
+  const offsets=[[0,0],[0,-.25],[0,.25],[-.25,0],[.25,0],[-.25,-.25],[.25,-.25],[-.25,.25],[.25,.25]];
+  let best=route,lowest=Infinity;
+  for(const [dx,dy] of offsets){
+   const candidate=route.map(([x,y])=>[x+dx*cell,y+dy*cell]);
+   const tip=candidate.at(-1);
+   let conflicts=0;
+   for(const other of previous){
+    const otherTip=other.at(-1);
+    if(Math.hypot(tip[0]-otherTip[0],tip[1]-otherTip[1])<cell*.22)conflicts++;
+    for(let i=1;i<candidate.length;i++){
+     for(let j=1;j<other.length;j++){
+      if(sharesShaft(candidate[i-1],candidate[i],{start:other[j-1],end:other[j]},cell))conflicts++;
+     }
+    }
+   }
+   if(conflicts<lowest){best=candidate;lowest=conflicts}
+   if(!conflicts)break;
+  }
+  return best;
+ }
+ function labelPoint(route,fraction){
+  const lengths=route.slice(1).map(([x,y],i)=>Math.hypot(x-route[i][0],y-route[i][1]));
+  let distance=lengths.reduce((sum,n)=>sum+n,0)*fraction;
+  for(let i=0;i<lengths.length;i++){
+   if(distance<=lengths[i]&&lengths[i]>0){
+    const t=distance/lengths[i];
+    return route[i].map((v,k)=>v+(route[i+1][k]-v)*t);
+   }
+   distance-=lengths[i];
+  }
+  return route.at(-1);
+ }
  function arrowLayers(board,hint){
-  const definitions=svg('defs',{}),base=[],overlaps=[],shafts=[];
-  const r=board.rect,head=Math.max(10,r.width/28),width=Math.max(4,r.width/85);
+  const definitions=svg('defs',{}),base=[],overlaps=[],shafts=[],labels=[],labelCenters=[],routes=[];
+  const r=board.rect,cell=r.width/8,head=Math.max(10,r.width/28),width=Math.max(4,r.width/85);
   const overlapColor=/^#[0-9a-f]{6}$/i.test(hint.overlap_color||'')?hint.overlap_color:'#a855f7';
   for(const arrow of hint.arrows||[]){
    const from=board.points[arrow.move.slice(0,2)],to=board.points[arrow.move.slice(2,4)];
    if(!from||!to)continue;
    const start=[r.x+from[0]*r.width,r.y+from[1]*r.height];
-   const end=[r.x+to[0]*r.width,r.y+to[1]*r.height];
-   const angle=Math.atan2(end[1]-start[1],end[0]-start[0]);
-   const id=`boardlens-arrow-${board.index}-${shafts.length}`;
+   const target=[r.x+to[0]*r.width,r.y+to[1]*r.height];
+   const numbered=Number.isInteger(arrow.lookahead_ply);
+   const route=numbered?predictionRoute(start,target,board,arrow.move,cell,routes):[start,target];
+   if(numbered)routes.push(route);
+   const end=route.at(-1),tail=route.at(-2);
+   const angle=Math.atan2(end[1]-tail[1],end[0]-tail[0]);
+   const id=`boardlens-arrow-${board.index}-${base.length}`;
    const shape=svg('g',{id});
-   const line=svg('path',{d:`M ${start.join(' ')} L ${end.join(' ')}`,stroke:'currentColor','stroke-width':width,'stroke-linecap':'round',fill:'none'});
+   const line=svg('path',{d:'M '+route.map(point=>point.join(' ')).join(' L '),stroke:'currentColor','stroke-width':width,'stroke-linecap':'round',fill:'none'});
    if(arrow.dashed)line.setAttribute('stroke-dasharray',width*1.6+' '+width);
    const tip=svg('path',{d:`M ${end.join(' ')} L ${end[0]-head*Math.cos(angle-.5)} ${end[1]-head*Math.sin(angle-.5)} L ${end[0]-head*Math.cos(angle+.5)} ${end[1]-head*Math.sin(angle+.5)} Z`,fill:'currentColor'});
    shape.append(line,tip);definitions.append(shape);
-   base.push(svg('use',{href:'#'+id,color:arrow.color,opacity:'.85'}));
-   const shared=shafts.filter(other=>sharesShaft(start,end,other,r.width/8));
+   const identity=numbered?{'data-lookahead-ply':arrow.lookahead_ply,'data-move':arrow.move}:{};
+   base.push(svg('use',{href:'#'+id,color:arrow.color,opacity:'.85',...identity}));
+   const shared=arrow.lookahead_ply?[]:shafts.filter(other=>sharesShaft(start,end,other,r.width/8));
    if(shared.length){
     const maskId=id+'-overlap';
     const mask=svg('mask',{id:maskId,maskUnits:'userSpaceOnUse',x:r.x,y:r.y,width:r.width,height:r.height});
@@ -181,28 +236,51 @@
     definitions.append(mask);
     overlaps.push(svg('use',{href:'#'+id,color:overlapColor,mask:`url(#${maskId})`}));
    }
-   shafts.push({id,start,end});
+   if(numbered){
+    const number=String(arrow.lookahead_ply),size=Math.max(14,cell*.21);
+    const badgeWidth=size*(number.length*.65+.9),badgeHeight=size*1.35;
+    const candidates=[.56,.40,.70,.27,.82,.15,.48,.62,.34,.76].map(f=>labelPoint(route,f));
+    const [x,y]=candidates.find(([px,py])=>
+     px-badgeWidth/2>=r.x&&px+badgeWidth/2<=r.x+r.width&&
+     py-badgeHeight/2>=r.y&&py+badgeHeight/2<=r.y+r.height&&
+     labelCenters.every(([cx,cy,w,h])=>Math.abs(px-cx)>(badgeWidth+w)/2||
+      Math.abs(py-cy)>(badgeHeight+h)/2))||candidates[0];
+    labelCenters.push([x,y,badgeWidth,badgeHeight]);
+    const badge=svg('g',{'data-lookahead-badge':arrow.lookahead_ply});
+    badge.append(svg('rect',{x:x-badgeWidth/2,y:y-badgeHeight/2,width:badgeWidth,height:badgeHeight,
+     rx:badgeHeight*.22,fill:'#152630',stroke:arrow.color,'stroke-width':Math.max(1.4,cell*.023)}));
+    const label=svg('text',{x,y,'dominant-baseline':'central','text-anchor':'middle',...identity});
+    for(const [property,value] of Object.entries({display:'inline',visibility:'visible',opacity:'1',
+     fill:'#fff',stroke:'none','font-family':'system-ui','font-size':size+'px','font-weight':'700'})){
+     label.style.setProperty(property,value,'important');
+    }
+    label.textContent=number;
+    badge.append(label);
+    labels.push(badge);
+   }
+   if(!arrow.lookahead_ply)shafts.push({id,start,end});
   }
-  return base.length?[definitions,...base,...overlaps]:[];
+  return base.length?[definitions,...base,...overlaps,...labels]:[];
  }
  window.addEventListener('message',event=>{
   if(event.source!==window||event.origin!==location.origin||!event.data?.boardlensRead)return;
   const {boards}=event.data;
-  if(!Array.isArray(boards)||boards.length>3||document.visibilityState!=='visible'||!document.hasFocus())return;
+  if(!Array.isArray(boards)||document.visibilityState!=='visible')return;
   readBoards(boards,event.data.dashboard===true);
  });
  async function readBoards(boards,dashboard){
-  const revision=view,requested=JSON.stringify(boards.map(b=>[b.index,b.board_id,b.fen,b.white_bottom,b.practice_id,b.practice_focused]));
+  const requested=JSON.stringify(boards.map(b=>[b.index,b.board_id,b.fen,b.white_bottom,b.practice_id]));
   const coachBoard=boards.find(board=>board.index===0)||boards[0];
   if(requested!==lastRequested){
-   clearArrows();lastRequested=requested;
+   view++;clearArrows();lastRequested=requested;
    if(coachBoard)boardLensCoach.update(null);
    else boardLensCoach.clear();
   }
   if(busy){pending={boards,dashboard};return}
+  const revision=view;
   busy=true;
   try{
-   const response=await chrome.runtime.sendMessage({type:'boards',focused:true,dashboard,boards:boards.map(b=>({index:b.index,board_id:b.board_id,moves:b.moves,game_result:b.game_result,fen:b.fen,exact:b.exact,practice_id:b.practice_id,practice_kind:b.practice_kind,practice_focused:b.practice_focused,turn_hint:b.turn_hint,white_bottom:b.white_bottom}))});
+   const response=await chrome.runtime.sendMessage({type:'boards',focused:document.hasFocus(),visible:true,dashboard,boards:boards.map(b=>({index:b.index,board_id:b.board_id,moves:b.moves,game_result:b.game_result,fen:b.fen,exact:b.exact,practice_id:b.practice_id,practice_kind:b.practice_kind,practice_focused:b.practice_focused,turn_hint:b.turn_hint,white_bottom:b.white_bottom,coach_moves:b===coachBoard?boardLensCoach.candidateCount:null}))});
    if(!stillCurrent(requested,revision))return;
    if(!response||response.error){if(response?.repair){notice.textContent='BoardLens: '+response.error;notice.hidden=false}if(Date.now()-last>1500){clearArrows();clearEvaluations();boardLensCoach.clear()}return}notice.hidden=true;last=Date.now();
    const layers=[];
@@ -212,18 +290,27 @@
      panel.observer?.disconnect();panel.root.remove();evalPanels.delete(id);
     }
    }
+   for(const id of confirmedHints.keys()){
+    if(!boards.some(b=>b.index===id))confirmedHints.delete(id);
+   }
    for(const b of boards){
-    const i=b.index,hint=Object.entries(response).find(([k,v])=>
+    const i=b.index,entry=Object.entries(response).find(([k,v])=>
      k.endsWith(':'+i)&&v.fen===b.fen&&(!Object.hasOwn(v,'board_id')||v.board_id===b.board_id));
+    const previous=confirmedHints.get(i);
+    const samePosition=previous&&previous.id===b.board_id&&previous.fen===b.fen;
+    if(entry)confirmedHints.set(i,{id:b.board_id,fen:b.fen,hint:entry[1],at:last});
+    else if(!samePosition||response.arrows_visible===false)confirmedHints.delete(i);
+    const hint=entry?.[1]||(samePosition&&response.arrows_visible===true&&last-previous.at<1250?previous.hint:null);
     if(!hint)continue;
-    if(b===coachBoard)coachHint=hint[1];
-    if(hint[1].evaluation) evaluation(i,b,hint[1].evaluation);
-    else if(Object.hasOwn(hint[1],'evaluation')&&evalPanels.has(i)){
+    if(b===coachBoard)coachHint=hint;
+    if(hint.evaluation) evaluation(i,b,hint.evaluation);
+    else if(Object.hasOwn(hint,'evaluation')&&evalPanels.has(i)){
      const panel=evalPanels.get(i);panel.observer?.disconnect();panel.root.remove();evalPanels.delete(i);
     }
-    const {arrows,marks,overlap_color}=hint[1];
-    layers.push({board:b,hints:{arrows,marks,overlap_color}});
+    const {arrows,marks,overlap_color}=hint;
+    if(response.arrows_visible!==false)layers.push({board:b,hints:{arrows,marks,overlap_color}});
    }
+   if(!host.isConnected)document.documentElement.append(host);
    const showArrows=boardLensCoach.showArrows;
    const signature=JSON.stringify([showArrows,layers.map(({board,hints})=>[
     board.index,board.board_id,board.rect,board.points,hints
@@ -254,12 +341,13 @@
    busy=false;
    const next=pending;
    pending=null;
-   if(next&&document.hasFocus()&&document.visibilityState==='visible'){
+   if(next&&document.visibilityState==='visible'){
     readBoards(next.boards,next.dashboard);
    }
   }
  }
  async function releaseBoard(){
+  confirmedHints.clear();
   view++;
   pending=null;
   lastRequested='';
@@ -267,13 +355,11 @@
   clearEvaluations();
   boardLensCoach.clear();
   try{
-   await chrome.runtime.sendMessage({type:'boards',focused:false,boards:[]});
+   await chrome.runtime.sendMessage({type:'boards',focused:false,visible:false,boards:[]});
   }catch{
    // Chrome can invalidate this tab's reader when the extension reloads.
   }
  }
- window.addEventListener('blur',releaseBoard);
- window.addEventListener('focus',()=>{view++});
  document.addEventListener('visibilitychange',()=>{
   if(document.visibilityState!=='visible')releaseBoard();
  });

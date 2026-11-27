@@ -5,6 +5,8 @@ even when the system capture API is waiting for a frame or permission.
 """
 from __future__ import annotations
 
+from collections import Counter
+
 import os
 import threading
 import time
@@ -69,7 +71,73 @@ def _bgr(image):
     return cv2.imdecode(np.frombuffer(png,np.uint8),cv2.IMREAD_COLOR)
 
 
+def visible_windows():
+    import Quartz as CG
+    flags = CG.kCGWindowListOptionOnScreenOnly | CG.kCGWindowListExcludeDesktopElements
+    windows = CG.CGWindowListCopyWindowInfo(flags, CG.kCGNullWindowID) or []
+    return [(int(window['kCGWindowNumber']), str(window.get('kCGWindowOwnerName','Application')),
+             str(window.get('kCGWindowName','') or 'Window')) for window in windows
+            if int(window.get('kCGWindowOwnerPID',0)) != os.getpid() and window.get('kCGWindowLayer') == 0
+            and window.get('kCGWindowBounds',{}).get('Width',0) >= 96
+            and window.get('kCGWindowBounds',{}).get('Height',0) >= 96]
+
+
+def capture_window(window_id, cancelled):
+    import objc
+    import Quartz as CG
+    import ScreenCaptureKit as SC
+    with objc.autorelease_pool():
+        if not CG.CGPreflightScreenCaptureAccess():
+            raise CaptureUnavailable('Allow Screen Recording to capture a window.')
+        content = _await(lambda callback: SC.SCShareableContent.
+            getShareableContentExcludingDesktopWindows_onScreenWindowsOnly_completionHandler_(True,False,callback), cancelled)
+        target = next((window for window in content.windows() if int(window.windowID()) == window_id),None)
+        if target is None:
+            raise CaptureUnavailable('That window is no longer available.')
+        selection = SC.SCContentFilter.alloc().initWithDesktopIndependentWindow_(target)
+        configuration = SC.SCStreamConfiguration.alloc().init()
+        bounds = selection.contentRect().size
+        factor = min(selection.pointPixelScale(), 2560/max(bounds.width,bounds.height,1))
+        configuration.setWidth_(max(1,round(bounds.width*factor)))
+        configuration.setHeight_(max(1,round(bounds.height*factor)))
+        configuration.setShowsCursor_(False)
+        configuration.setIgnoreShadowsSingleWindow_(True)
+        image = _await(lambda callback: SC.SCScreenshotManager.
+            captureImageWithFilter_configuration_completionHandler_(selection,configuration,callback), cancelled)
+        return _bgr(image)
+
+
 def capture_frames(specs, excluded_window_ids, cancelled):
+    crops = Counter(spec['key'] for spec in specs if spec.get('crop'))
+    shared = {key for key, count in crops.items() if count > 1}
+    if not shared:
+        return _capture_frames(specs, excluded_window_ids, cancelled)
+    requests = []
+    grouped = set()
+    for spec in specs:
+        key = spec['key']
+        if key not in shared:
+            requests.append(spec)
+        elif key not in grouped:
+            requests.append({name: value for name, value in spec.items() if name != 'crop'})
+            grouped.add(key)
+    frames = _capture_frames(requests, excluded_window_ids, cancelled)
+    by_display = {frame[0]: frame for frame in frames if frame[0] in shared}
+    output = [frame for frame in frames if frame[0] not in shared]
+    for spec in specs:
+        key = spec['key']
+        if key not in by_display:
+            continue
+        _, name, image = by_display[key]
+        if spec.get('crop'):
+            x,y,size = spec['crop']
+            output.append((key,name,image[y:y+size,x:x+size],(x,y,size,spec['width'],spec['height'])))
+        else:
+            output.append((key,name,image))
+    return output
+
+
+def _capture_frames(specs, excluded_window_ids, cancelled):
     import objc
     import Quartz  # Register CGImage's CoreFoundation bridge before callbacks.
     with objc.autorelease_pool():

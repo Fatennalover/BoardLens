@@ -8,7 +8,7 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
-from .vision import Detection, checker_score, detect_boards
+from .vision import Detection, MIN_BOARD_PIXELS, checker_score, detect_boards
 
 
 def _sequences(response):
@@ -67,7 +67,7 @@ def grid_candidates(image, cancelled=None, limit=8):
             if cancelled and cancelled.is_set():
                 return []
             size = round(((x1 - x0) + (y1 - y0)) / 2)
-            if size < 160 or abs((x1 - x0) - (y1 - y0)) > size * .025:
+            if size < MIN_BOARD_PIXELS or abs((x1 - x0) - (y1 - y0)) > size * .025:
                 continue
             x, y = round((x0 + x1 - size) / 2), round((y0 + y1 - size) / 2)
             if min(x, y) < -3 or x + size > small.shape[1] + 3 or y + size > small.shape[0] + 3:

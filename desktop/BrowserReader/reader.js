@@ -5,6 +5,8 @@
   let rows=[];for(let rank=8;rank;rank--){let row='',empty=0;for(let f=0;f<8;f++){const p=map[String.fromCharCode(97+f)+rank];if(!p)empty++;else{if(empty)row+=empty;empty=0;row+=p}}if(empty)row+=empty;rows.push(row)}return rows.join('/')+' '+turn+' - - 0 1';
  }
  const boardIds=new WeakMap();
+ const boardSlots=new WeakMap();
+ let nextSlot=0;
  function boardId(board,owner){
   let target=boardIds.get(board);
   if(target?.owner!==owner){
@@ -53,8 +55,10 @@
   const puzzle=puzzlePage();
   const boards=[...document.querySelectorAll('wc-chess-board,cg-board')];
   if(!boards.length&&puzzle)boards.push(...document.querySelectorAll('chess-board'));
-  return boards.filter(e=>fullyVisible(e.getBoundingClientRect())).slice(0,3).map((e,index)=>{
+  return boards.filter(e=>fullyVisible(e.getBoundingClientRect())).map(e=>{
    try {
+   if(!boardSlots.has(e))boardSlots.set(e,nextSlot++);
+   const index=boardSlots.get(e);
    const rect=e.getBoundingClientRect(),g=e.game;let fen,turnHint=null,bottom=true,points={},exact=false,is3d=!!e.querySelector('canvas');
    const practice=practicePosition(e);
    let gameFen;
@@ -62,7 +66,7 @@
    if(practice?.kind==='analysis'){
     fen=practice.fen;exact=true;bottom=practice.ground.state.orientation==='white';
    }else if(typeof gameFen==='string'&&gameFen){
-    fen=gameFen;exact=true;bottom=!(g.getOptions?.()?.flipped??e.closest('.orientation-black'));
+    fen=gameFen;exact=true;bottom=!(g.getOptions?.()?.flipped??(e.closest('.orientation-black,.flipped')||(e.shadowRoot||e).querySelector('.board.flipped')));
     const renderer=g.getRenderer?.(),canvas=e.querySelector('canvas');
     if(is3d&&renderer?.getCoordsFromSquare&&canvas){
      for(let rank=1;rank<=8;rank++)for(let f=0;f<8;f++){const square=String.fromCharCode(97+f)+rank,p=renderer.getCoordsFromSquare(square);points[square]=[p.x/canvas.width,p.y/canvas.height]}
@@ -102,7 +106,8 @@
     fen=fenOf(map,turnHint===false?'b':'w');
    }
    if(!fen)return null;
-   if(!Object.keys(points).length)for(let rank=1;rank<=8;rank++)for(let f=0;f<8;f++)points[String.fromCharCode(97+f)+rank]=[(bottom?f+.5:7.5-f)/8,(bottom?8.5-rank:rank-.5)/8];
+   const projected=Object.keys(points).length>0;
+   if(!projected)for(let rank=1;rank<=8;rank++)for(let f=0;f<8;f++)points[String.fromCharCode(97+f)+rank]=[(bottom?f+.5:7.5-f)/8,(bottom?8.5-rank:rank-.5)/8];
    const scope=e.closest('.round__app,.board-layout-main,.board-layout-component')||e.parentElement;
    const resultNode=scope?.querySelector('.game-over-component,.game-over-header-title,.game-over-modal-title,.result-wrap .status');
    const resultText=resultNode&&resultNode.getClientRects().length?resultNode.textContent.trim().slice(0,180):null;
@@ -111,7 +116,7 @@
    const id=boardId(e,practice?.game||practice?.api||g||location.pathname);
    const sans=exact?g?.getHistorySANs?.():null;
    const moves=Array.isArray(sans)&&sans.length<=600?sans:undefined;
-   return {game_result,fen,exact,board_id:id,moves,practice_id:practice?boardId(e,practice.game||practice.api):null,practice_kind:practice?.kind,practice_focused:!!practice&&document.hasFocus(),turn_hint:turnHint,white_bottom:bottom,index,points,rect:{x:rect.x,y:rect.y,width:rect.width,height:rect.height}};
+   return {game_result,fen,exact,board_id:id,moves,practice_id:practice?boardId(e,practice.game||practice.api):null,practice_kind:practice?.kind,practice_focused:!!practice&&document.hasFocus(),turn_hint:turnHint,white_bottom:bottom,index,points,projected,rect:{x:rect.x,y:rect.y,width:rect.width,height:rect.height}};
    } catch {return null}
   }).filter(Boolean);
  }

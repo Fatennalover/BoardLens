@@ -72,7 +72,7 @@ def test_browser_evaluation_works_with_arrows_off_and_uses_separate_engine(qt):
         board=w.tracker.board
         evaluation=summarize(board,[{'pv':[chess.Move.from_uci('e2e4')],'score':PovScore(Cp(185),True)}],'Evaluation engine')
         w.evaluations.cache[board.fen()]=evaluation
-        w._last_read=exact_read(board.fen(),False,'browser:qa:0');w._screen_confirmed=True;w._monitoring=True
+        w._last_read=exact_read(board.fen(),False,'browser:qa:0');w._screen_confirmed=w._turn_known=w._monitoring=True
         w.screen_eval_enabled.setChecked(True);w.overlay_enabled.setChecked(False);w.publish_reader_hints()
         hint=reader.hints['browser:qa:0'];assert hint['arrows']==[]
         assert hint['evaluation']['cp']==185 and hint['evaluation']['provider']=='Evaluation engine'

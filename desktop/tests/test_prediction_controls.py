@@ -72,7 +72,6 @@ def test_reply_failure_retains_valid_primary_recommendation(monkeypatch):
 
 def test_coach_fills_missing_replies_for_each_candidate(monkeypatch):
     job = EngineJob()
-    job.reply_for_every_move = True
     calls = []
     updates = []
     job.on_update = updates.append
@@ -88,6 +87,36 @@ def test_coach_fills_missing_replies_for_each_candidate(monkeypatch):
     assert calls == [(None, 3), ("d2d4", 1), ("g1f3", 1)]
     assert [line["reply_move"] for line in result["lines"]] == ["e7e5", "e7e5", "e7e5"]
     assert updates and updates[0]["continuation_pending"]
+
+
+def test_each_candidate_can_extend_beyond_twelve_legal_plies(monkeypatch):
+    job = EngineJob()
+    updates = []
+    job.on_update = updates.append
+
+    def search(_, board, settings):
+        moves = list(board.legal_moves)
+        return summarize(board, [{'pv': [move]} for move in moves[:settings.multipv]], 'test engine', allow_unscored=True)
+
+    monkeypatch.setattr(job, '_search_once', search)
+    board = chess.Board()
+    result = job._search(None, board, SearchSettings(multipv=3, prediction_plies=16))
+    assert len(result['lines']) == 3
+    assert [len(line['pv_moves']) for line in updates[0]['lines']] == [1, 1, 1]
+    assert all(updates[0]['lines'][i]['move'] == result['lines'][i]['move'] for i in range(3))
+    for line in result['lines']:
+        position = board.copy()
+        assert len(line['pv_moves']) == 16
+        for move in line['pv_moves']:
+            position.push_uci(move)
+
+
+def test_illegal_tail_is_never_published_as_a_reply():
+    board = chess.Board()
+    r = summarize(board, [{'pv': [chess.Move.from_uci(move) for move in ('d2d4', 'd4d5', 'g8f6')]}],
+                  'engine with invalid tail', allow_unscored=True)
+    assert r['lines'][0]['pv_moves'] == ['d2d4']
+    assert r['lines'][0]['reply_move'] == ''
 
 
 def test_lookahead_is_available_from_board_toolbar(qt):
@@ -115,5 +144,29 @@ def test_lookahead_is_available_from_board_toolbar(qt):
         assert window.lookahead_count.isEnabled()
         assert window.lookahead_budget.isVisible()
         dialog.accept()
+    finally:
+        window.close()
+
+
+def test_six_ply_line_text_and_numbered_preview_arrows(qt, monkeypatch):
+    window = MainWindow()
+    try:
+        board = chess.Board()
+        moves = [chess.Move.from_uci(uci) for uci in
+                 ("e2e4", "c7c5", "g1f3", "d7d6", "d2d4", "c5d4")]
+        result = summarize(board, [{"pv": moves}], "Test", allow_unscored=True)
+        monkeypatch.setattr(window, "displayed_result", lambda _: result)
+        monkeypatch.setattr(window, "allowed_colors", lambda: (True, True))
+        window.stop()
+        window.overlay_enabled.setChecked(True)
+        window.show_reply.setChecked(True)
+        window.rank_best.setChecked(True)
+        window.stick_to_move.setChecked(False)
+        window.predict_continuations.setChecked(True)
+        window.prediction_plies.setValue(6)
+        window.repaint_board_visuals()
+        assert "6 plies" in window.predicted_line.text()
+        assert window.predicted_line.text().endswith("cxd4")
+        assert [(arrow["move"], arrow["label"], arrow["dashed"]) for arrow in window.board_view.arrows] == [(move, str(i), True) for i, move in enumerate(moves, 1)]
     finally:
         window.close()

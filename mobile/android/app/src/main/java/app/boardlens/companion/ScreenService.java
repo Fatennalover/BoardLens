@@ -107,11 +107,13 @@ public final class ScreenService extends Service {
   private boolean cleanFrame = false;
   private volatile boolean needsRead=true;
   private volatile int[] baseline;
+  private int[] annotatedFrame;
   private long blankSince=-1;
   private String notificationText="Scan now to refresh · Stop to end sharing";
   private volatile List<String> lastArrows = Collections.emptyList();
   private final ArrowEngines extraEngines=new ArrowEngines();
   private volatile List<Integer> lastArrowColors=List.of();
+  private volatile List<Integer> lastArrowPlies=List.of();
   private final LocalEngines moves = new LocalEngines(), evaluator = new LocalEngines();
   private final LatestWorkQueue moveWorker = new LatestWorkQueue("BoardLens-moves"),
       evalWorker = new LatestWorkQueue("BoardLens-evaluation");
@@ -384,7 +386,7 @@ public final class ScreenService extends Service {
     if(target!=null)targetLostAt=SystemClock.elapsedRealtime();
     if(target!=null||baseline!=null){generation.incrementAndGet();moves.cancel();evaluator.cancel();}
     extraEngines.cancel();
-    target=null;targetGeometry=null;baseline=null;confirmation.clear();needsRead=true;
+    target=null;targetGeometry=null;baseline=null;annotatedFrame=null;confirmation.clear();needsRead=true;
     publishControlsBoard(null);
     lastArrows=Collections.emptyList();pinned=null;displayedFen="";displayedMove="";lastAnalyzedSettings="";
     main.post(()->{if(overlay!=null)overlay.clear();});
@@ -421,20 +423,22 @@ public final class ScreenService extends Service {
   private void renderOverlay(){
     Rect latest=target;Rect rect=latest==null?null:new Rect(latest);BoardGeometry geometry=targetGeometry;boolean orientation=bottom;long token=generation.get();
     if(rect==null)return;
-    main.post(()->{if(token!=generation.get())return;if(!running||gameEnded||phoneVisible||needsRead||baseline==null||controlsOverlap(rect)){overlay.clear();return;}if(latest!=target)return;List<String> arrows=new ArrayList<>();List<Integer> colors=new ArrayList<>();
+    main.post(()->{if(token!=generation.get())return;if(!running||gameEnded||phoneVisible||needsRead||baseline==null||controlsOverlap(rect)){overlay.clear();return;}if(latest!=target)return;List<String> arrows=new ArrayList<>();List<Integer> colors=new ArrayList<>();List<Integer> plies=new ArrayList<>();
       if(settings.arrows()){
         arrows.addAll(lastArrows);colors.addAll(lastArrowColors);
         if(colors.size()!=arrows.size())colors.clear();
         int mainColor = android.graphics.Color.parseColor(settings.mainColor());
         while(colors.size()<arrows.size())colors.add(mainColor);
-        if(!colors.isEmpty())colors.set(0,mainColor);
+        if (lastArrowPlies.size()==arrows.size()) plies.addAll(lastArrowPlies);
+        while (plies.size()<arrows.size()) plies.add(0);
+        if (!colors.isEmpty() && plies.get(0)==0) colors.set(0,mainColor);
         if(position!=null&&(!settings.onlyMine()||position.white==orientation)){
           for(var a:extraEngines.arrows(settings)){
-            arrows.add(a.move());colors.add(a.color());
+            arrows.add(a.move());colors.add(a.color());plies.add(0);
           }
         }
       }
-      overlay.show(geometry==null?BoardGeometry.rectangle(rect.left,rect.top,rect.right,rect.bottom):geometry,orientation,arrows,colors,settings.screenEvaluation()&&settings.evaluationEnabled()&&hasEvaluationValue,evaluationBadge,whiteShare,settings.evaluationPosition());});
+      overlay.show(geometry==null?BoardGeometry.rectangle(rect.left,rect.top,rect.right,rect.bottom):geometry,orientation,arrows,colors,plies,turnKnown&&settings.screenEvaluation()&&settings.evaluationEnabled()&&hasEvaluationValue,evaluationBadge,whiteShare,settings.evaluationPosition());});
   }
   private void restoreArrows(){if((settings.arrows()&&(!lastArrows.isEmpty()||extraEngines.hasArrows())&&!overlay.hasArrows())||(settings.screenEvaluation()&&settings.evaluationEnabled()&&!overlay.hasEvaluation()))renderOverlay();}
   private void requestTick(){
@@ -473,7 +477,7 @@ public final class ScreenService extends Service {
           Image.Plane plane=image.getPlanes()[0];
           if(target!=null&&baseline!=null&&key.equals(lastSettings)){
             int[] sampled=FrameFingerprint.read(plane.getBuffer(),image.getWidth(),image.getHeight(),plane.getRowStride(),plane.getPixelStride(),target.left,target.top,target.right,target.bottom,this::obscuredPixel);
-            if(sampled!=null&&!different(baseline,sampled)){
+            if(sampled!=null&&(!different(baseline,sampled)||annotatedFrame!=null&&!different(annotatedFrame,sampled))){
               if(resultWatcher!=null&&resultWatcher.due()){Bitmap resultFrame=framePixels.bitmap(plane.getBuffer(),image.getWidth(),image.getHeight(),plane.getRowStride(),plane.getPixelStride());if(resultFrame!=null){checkResult(resultFrame);resultFrame.recycle();}}
               scanStage="Board tracked";needsRead=false;cleanFrame=false;confirmation.clear();restoreArrows();return;}
           }
@@ -501,6 +505,7 @@ public final class ScreenService extends Service {
         moves.cancel();
         evaluator.cancel();
         baseline = null;
+        annotatedFrame = null;
         confirmation.clear();
       }
       if (target != null && !new Rect(0, 0, frame.getWidth(), frame.getHeight()).contains(target)) {
@@ -534,6 +539,14 @@ public final class ScreenService extends Service {
       if(read==null){reads++;read=target==null?reader.read(frame,null,settings.orientation()):reader.track(frame,target,settings.orientation());}
       diagnostic = reader.diagnostic;
       if (read == null) {
+        if (target != null && position != null && baseline != null) {
+          int[] sampled = fingerprint(frame,target);
+          if (FrameFingerprint.occupiedShapesMatch(baseline,sampled,position,bottom)) {
+            annotatedFrame=sampled;scanStage="Board tracked · visual markings ignored";
+            needsRead=false;failures=0;confirmation.clear();restoreArrows();return;
+          }
+        }
+        annotatedFrame = null;
         if(discovering){searchedFrame=frame;searchedSettings=key;if(!gameEnded){status="Looking for a complete supported board";notifyStatus("Looking for a complete board · scanning automatically");changed();}}
         confirmation.clear();
         if (++failures >= 3) {
@@ -574,6 +587,7 @@ public final class ScreenService extends Service {
         }
         if(synced==null && (position==null || canReset || hint!=null && turn.equals("Auto"))) {
           synced=ChessPosition.sync(null,read.placement(),turn.equals("Auto")&&hint!=null?(hint?"White":"Black"):turn,true);
+          known=synced!=null && hint!=null && synced.white==hint;
 
 
         }
@@ -599,7 +613,7 @@ public final class ScreenService extends Service {
       trackedPosition = position;
       if (changedPosition || orientationChanged || lastScannedBoard == null)
         lastScannedBoard = new PracticeSnapshot(position, bottom);
-      baseline = fingerprint(frame, target);needsRead=false;
+      baseline = fingerprint(frame, target);annotatedFrame=null;needsRead=false;
       if(changedPosition||orientationChanged||preview==null){
         Bitmap crop=Bitmap.createBitmap(frame,target.left,target.top,target.width(),target.height());
         preview=Bitmap.createScaledBitmap(crop,320,Math.max(1,Math.round(320f*crop.getHeight()/crop.getWidth())),true);
@@ -611,7 +625,7 @@ public final class ScreenService extends Service {
               + " at bottom · "
               + (position.white ? "White" : "Black")
               + " to move"
-              + (settings.turn().equals("Auto") ? " · turn inferred" : "");
+              + (turnKnown ? "" : " · Select White or Black in settings");
       changed();
       if(gameEnded){status="Game over · "+gameEndReason;lastArrows=Collections.emptyList();main.post(()->overlay.clear());changed();return;}
       if (changedPosition || orientationChanged || !key.equals(lastAnalyzedSettings)) {
@@ -655,6 +669,15 @@ public final class ScreenService extends Service {
     PhoneSettings jobSettings=settings.snapshot();
     moves.cancel();
     evaluator.cancel();
+    turnKnown = turnKnown || !settings.turn().equals("Auto")
+        || board.placement().equals(ChessPosition.START_PLACEMENT) || board.inCheck(board.white);
+    if (!turnKnown && settings.turn().equals("Auto")) {
+      extraEngines.cancel();
+      suggestion="Confirm the side to move in settings";
+      evaluation=settings.evaluationEnabled()?"Waiting for the side to move":"Evaluation off";
+      lastArrows=Collections.emptyList();
+      renderOverlay();changed();return;
+    }
     suggestion = EngineCatalog.get(settings.engine()).maia()?"Starting "+EngineCatalog.get(settings.engine()).name()+"…":"Thinking…";
     evaluation = "Updating "+EngineCatalog.get(settings.evaluator()).name()+" evaluation…";
     renderOverlay();
@@ -733,11 +756,10 @@ public final class ScreenService extends Service {
     if (token != generation.get() || result.lines().isEmpty() || !running
         || gameEnded || position==null || !board.fen().equals(position.fen()) || !result.fen().equals(board.fen())) return;
     if(settings.lockMove()){
-      if(pinned!=null&&pinned.fen().equals(result.fen()))result=pinned;
-      else pinned=result;
+      pinned = PhoneEngine.lockSuggestions(pinned, result, settings.moves());
+      result = pinned;
     }else pinned=null;
 
-    final BoardGeometry arrowGeometry=targetGeometry==null?BoardGeometry.rectangle(rect.left,rect.top,rect.right,rect.bottom):targetGeometry;
     PhoneEngine.Line first = result.lines().get(0);
     if (settings.steady()
         && !finished
@@ -750,6 +772,7 @@ public final class ScreenService extends Service {
     StringBuilder text = new StringBuilder();
     List<String> arrows = new ArrayList<>();
     List<Integer> arrowColors = new ArrayList<>();
+    List<Integer> arrowPlies = new ArrayList<>();
     int rank = 0;
     for (PhoneEngine.Line line : result.lines()) {
       if (settings.onlyMine() && board.white != whiteBottom) {
@@ -762,21 +785,35 @@ public final class ScreenService extends Service {
       }
       if(!board.legal().contains(line.move()))continue;
       text.append(++rank).append(". ").append(board.simple(line.move())).append('\n');
-      arrows.add(line.move());arrowColors.add(android.graphics.Color.parseColor(settings.arrowColor(rank - 1)));
-      if (rank == 1 && settings.predict() && settings.predictionPlies()>1 && line.pv().size() > 1) {
-        ChessPosition next = board.play(line.move());
-        String reply = line.pv().get(1);
-        if (next.legal().contains(reply)) {
-          text.append("Reply: ").append(next.simple(reply)).append('\n');
-          if (!settings.onlyMine()){arrows.add(reply);arrowColors.add(0xff51d9da);}
-          next = next.play(reply);
-          if (settings.predictionPlies()>2 && line.pv().size() > 2 && next.legal().contains(line.pv().get(2)))
-            text.append("Then: ").append(next.simple(line.pv().get(2))).append('\n');
+      boolean predict = settings.predict() && settings.predictionPlies() > 1;
+      boolean drawLine = rank == 1 && predict && !settings.onlyMine() && line.pv().size() > 1;
+      if (!drawLine) {
+        arrows.add(line.move());
+        arrowColors.add(Color.parseColor(settings.arrowColor(rank - 1)));
+        arrowPlies.add(0);
+      }
+      if (predict && line.pv().size() > 1) {
+        ChessPosition next = board;
+        int limit = Math.min(settings.predictionPlies(), line.pv().size());
+        StringJoiner continuation = new StringJoiner(" → ");
+        for (int index = 0; index < limit; index++) {
+          String move = line.pv().get(index);
+          if (!next.legal().contains(move)) break;
+          continuation.add(next.simple(move));
+          next = next.play(move);
+          if (drawLine) {
+            arrows.add(move);
+            arrowColors.add(Color.HSVToColor(new float[]{(265 + index * 137) % 360, .52f, 1f}));
+            arrowPlies.add(index + 1);
+          }
         }
+        text.append("Line: ").append(continuation).append('\n');
       }
     }
     if(token!=generation.get()||!running)return;
-    lastArrows = new ArrayList<>(arrows);lastArrowColors=List.copyOf(arrowColors);
+    lastArrowColors=List.copyOf(arrowColors);
+    lastArrowPlies=List.copyOf(arrowPlies);
+    lastArrows = List.copyOf(arrows);
     suggestion = text.length() == 0 ? "Waiting for your turn" : text.toString().trim()+(finished?"":"\nThinking…");
     changed();
     if(token==generation.get())renderOverlay();

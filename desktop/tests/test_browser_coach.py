@@ -96,6 +96,15 @@ def test_desktop_coach_follows_current_position_and_suggestions(qt, monkeypatch)
         assert previews() == ["d2d4"] and second.isChecked() and not first.isChecked()
         QTest.mouseClick(second, Qt.MouseButton.LeftButton)
         assert not previews() and not second.isChecked()
+        coach_search.preferences["auto_preview"] = True
+        window.repaint_board_visuals()
+        assert previews() == ["e2e4"]
+        QTest.mouseClick(second, Qt.MouseButton.LeftButton)
+        assert previews() == ["d2d4"]
+        QTest.mouseClick(second, Qt.MouseButton.LeftButton)
+        assert previews() == ["e2e4"]
+        coach_search.preferences["auto_preview"] = False
+
 
         window.orientation.setCurrentIndex(2)  # Changing orientation stops the current app searches.
         window.coach.suggest_button.click()
@@ -171,6 +180,7 @@ def test_browser_coach_keeps_current_moves_and_can_run_without_overlays(qt, monk
         identity = 'browser:qa:0'
         window._last_read = exact_read(board.fen(), chess.WHITE, identity)
         window._screen_confirmed = True
+        window._turn_known = True
         window._monitoring = True
         assert window.quick_arrows.text() == 'Screen arrows'
         window.quick_arrows.click()
@@ -220,3 +230,35 @@ def test_retired_browser_move_endpoint_rejects_even_a_paired_reader():
         assert error.value.code == 404
     finally:
         reader.close()
+
+
+def test_browser_coach_requests_its_own_engine_with_the_tab_candidate_count(qt, monkeypatch):
+    window=MainWindow()
+    try:
+        monkeypatch.setattr(window,'start_live',lambda **_:None)
+        monkeypatch.setattr(window,'suggest',lambda **_:None)
+        monkeypatch.setattr('chess_helper.coach_engine.engine_config.command',lambda *_:'fixture-engine')
+        window.source.setCurrentIndex(1)
+        window.browser_reader=BrowserReader(port=0)
+        window._monitoring=True
+        seen=[]
+
+        def search(job,command,position,settings):
+            seen.append((settings.engine_id,settings.multipv))
+            return summarize(position,[{'pv':[chess.Move.from_uci('d2d4')]}],'Independent Coach',allow_unscored=True)
+
+        monkeypatch.setattr(window.multi.searches,'run',search)
+        frames=window.browser_reader.accept({'source':'fixture','visible':True,
+            'boards':[{'fen':chess.STARTING_FEN,'white_bottom':True,'coach_moves':4}]})
+        window.live_finished(window._live_token,frames,'')
+        window.publish_reader_hints()
+        deadline=time.monotonic()+3
+        source='browser:fixture:0'
+        while not window.browser_coaches[source].result and time.monotonic()<deadline:
+            qt.processEvents();time.sleep(.01)
+        window.publish_reader_hints()
+        coach=window.browser_reader.hints[source]['coach']
+        assert coach['engine']=='Independent Coach' and coach['moves'][0]['san']=='d4'
+        assert seen==[('stockfish',4)]
+    finally:
+        window.close()

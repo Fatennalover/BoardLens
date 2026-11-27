@@ -14,6 +14,7 @@ def result(board,move,cp=20):
 
 def test_first_move_stays_locked_through_progress_and_final_but_eval_updates(qt):
     w=MainWindow();w.stick_to_move.setChecked(True)
+    w.show_reply.setChecked(False);w.predict_continuations.setChecked(False);w.recommendation_preset(1)
     board=w.tracker.board
     a=result(board,'e2e4');b=result(board,'d2d4',-80)
     w.engine_progress(w.generation,a)
@@ -31,7 +32,9 @@ def test_first_move_stays_locked_through_progress_and_final_but_eval_updates(qt)
 
 
 def test_lock_preserves_same_position_reanalysis_and_releases_for_new_board(qt):
-    w=MainWindow();w.result=result(w.tracker.board,'e2e4')
+    w=MainWindow()
+    w.show_reply.setChecked(False);w.predict_continuations.setChecked(False);w.recommendation_preset(1)
+    w.result=result(w.tracker.board,'e2e4')
     w.stick_to_move.setChecked(True)
     w.invalidate(preserve_eval=True)
     assert w.result is None
@@ -55,3 +58,50 @@ def test_scan_now_releases_pin_and_setting_persists(qt,monkeypatch):
     again=MainWindow()
     assert again.stick_to_move.isChecked() and again._pinned_result is None
     again.close()
+
+
+
+def test_lock_keeps_four_suggestions_replies_and_lookahead(qt):
+    w = MainWindow()
+    try:
+        board = w.tracker.board
+        w.recommendation_preset(4)
+        w.show_reply.setChecked(True)
+        w.show_black.setChecked(True)
+        w.predict_continuations.setChecked(True)
+        w.prediction_plies.setValue(4)
+        w.stick_to_move.setChecked(True)
+
+        def search(*paths):
+            entries = []
+            for number, path in enumerate(paths):
+                score = chess.engine.PovScore(chess.engine.Cp(30 - number), chess.WHITE)
+                entries.append({'pv': [chess.Move.from_uci(uci) for uci in path.split()],
+                                'score': score, 'depth': 12})
+            return summarize(board, entries, 'test engine')
+
+        w.engine_progress(w.generation, search('e2e4'))
+        complete = search('d2d4 d7d5', 'g1f3 d7d5', 'e2e4 e7e5 g1f3 b8c6', 'c2c4 e7e5')
+        w.engine_finished(w.generation, complete, '')
+        expected = ['e2e4', 'd2d4', 'g1f3', 'c2c4']
+        assert [line['move'] for line in w.displayed_result(w.result)['lines']] == expected
+        assert w.reply_label.text()
+        assert '#4 White' in w.lines.toPlainText()
+        assert [(a['lookahead_ply'], a['move'].uci()) for a in w.board_view.arrows if a.get('lookahead_ply')] == [
+            (1, 'e2e4'), (2, 'e7e5'), (3, 'g1f3'), (4, 'b8c6')]
+        assert [a['move'].uci() for a in w.board_view.arrows if not a.get('lookahead_ply')] == expected[1:]
+
+        data = w.phone.board('primary', 'Board 1', board, True, w.result,
+                             w.displayed_result(w.result), w.board_view.arrows)
+        assert [line['move'] for line in data['lines']] == expected
+        assert all(line['reply'] for line in data['lines'])
+
+        # Changing the selection keeps the first two locked and exposes the fixed order again when restored.
+        w.recommendation_preset(2)
+        assert [a['move'].uci() for a in w.board_view.arrows if not a.get('lookahead_ply')] == ['d2d4']
+        w.recommendation_preset(4)
+        assert [a['move'].uci() for a in w.board_view.arrows if not a.get('lookahead_ply')] == expected[1:]
+        w.prediction_plies.setValue(2)
+        assert [a['lookahead_ply'] for a in w.board_view.arrows if a.get('lookahead_ply')] == [1, 2]
+    finally:
+        w.close()

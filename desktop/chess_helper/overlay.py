@@ -19,7 +19,7 @@ COACH_PREVIEW_COLOR = "#eab1ff"
 COACH_REPLY_COLOR = "#76e3dc"
 
 
-def shafts_share_segment(first, second, cell):
+def shafts_share_segment(first, second, cell, clearance=.015):
     start, end = first
     axis = end - start
     length = math.hypot(axis.x(), axis.y())
@@ -28,10 +28,52 @@ def shafts_share_segment(first, second, cell):
     unit = axis / length
     a, b = (point - start for point in second)
     distance = max(abs(point.x() * unit.y() - point.y() * unit.x()) for point in (a, b))
-    if distance > cell * .015:
+    if distance > cell * clearance:
         return False
     low, high = sorted(point.x() * unit.x() + point.y() * unit.y() for point in (a, b))
     return min(length, high) - max(0., low) > cell * .16
+
+
+def space_prediction_path(points, earlier, cell):
+    """Keep each tip on its destination square while separating shared routes."""
+    best = points
+    fewest = len(earlier) + 1
+    for dx, dy in ((0,0), (0,-.25), (0,.25), (-.25,0), (.25,0),
+                   (-.25,-.25), (.25,-.25), (-.25,.25), (.25,.25)):
+        offset = QPointF(dx * cell, dy * cell)
+        route = tuple(point + offset for point in points)
+        segments = tuple(zip(route, route[1:]))
+        conflicts = 0
+        for other in earlier:
+            tip = route[-1] - other[-1]
+            if (math.hypot(tip.x(), tip.y()) < .22 * cell or
+                    any(shafts_share_segment(a, b, cell, clearance=.12)
+                        for a in segments for b in zip(other, other[1:]))):
+                conflicts += 1
+        if conflicts == 0:
+            return route
+        if conflicts < fewest:
+            best, fewest = route, conflicts
+    return best
+
+
+def arrow_label_box(shaft, width, height, occupied, bounds):
+    length = shaft.length()
+    best_box = QRectF()
+    least_overlap = float("inf")
+    for fraction in (.56, .40, .70, .27, .82, .15, .48, .62, .34, .76):
+        center = shaft.pointAtPercent(shaft.percentAtLength(length * fraction))
+        box = QRectF(center.x() - width / 2, center.y() - height / 2, width, height)
+        clipped = box.intersected(bounds)
+        overlap = max(0., box.width() * box.height() - clipped.width() * clipped.height())
+        for other in occupied:
+            intersection = box.intersected(other)
+            overlap += intersection.width() * intersection.height()
+        if overlap <= 0:
+            return box
+        if overlap < least_overlap:
+            best_box, least_overlap = box, overlap
+    return best_box
 
 
 def paint_arrows(painter, rect, white_bottom, arrows, overlap_color=DEFAULT_OVERLAP_COLOR):
@@ -41,6 +83,8 @@ def paint_arrows(painter, rect, white_bottom, arrows, overlap_color=DEFAULT_OVER
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     shapes = []
     labels = []
+    badge_boxes = []
+    prediction_paths = []
     previews = []
     overlaps = QPainterPath()
     for arrow in sorted(arrows, key=lambda candidate: not candidate.get("reply", False)):
@@ -60,14 +104,22 @@ def paint_arrows(painter, rect, white_bottom, arrows, overlap_color=DEFAULT_OVER
         style = Qt.PenStyle.DashLine if arrow.get("dashed") else Qt.PenStyle.SolidLine
         preview = arrow.get("preview")
         pen = QPen(color, max(3, cell * (.135 if preview else .095)), style, Qt.PenCapStyle.RoundCap)
-        shaft = QPainterPath(start)
         dx, dy = abs(end.x() - start.x()) / cell, abs(end.y() - start.y()) / cell
-        tail = start
-        if not projected and (round(dx), round(dy)) in ((1, 2), (2, 1)):
-            tail = QPointF(end.x(), start.y()) if dx > dy else QPointF(start.x(), end.y())
-            shaft.lineTo(tail)
-            shaft.moveTo(tail)
-        shaft.lineTo(end)
+        points = (start, end)
+        file_step = abs(chess.square_file(move.to_square) - chess.square_file(move.from_square))
+        rank_step = abs(chess.square_rank(move.to_square) - chess.square_rank(move.from_square))
+        if ((file_step, rank_step) in ((1, 2), (2, 1))
+                and max(abs(dx - file_step), abs(dy - rank_step)) < .03):
+            elbow = QPointF(end.x(), start.y()) if dx > dy else QPointF(start.x(), end.y())
+            points = (start, elbow, end)
+        ply = arrow.get("lookahead_ply")
+        if ply:
+            points = space_prediction_path(points, prediction_paths, cell)
+            prediction_paths.append(points)
+        tail, end = points[-2:]
+        shaft = QPainterPath(points[0])
+        for vertex in points[1:]:
+            shaft.lineTo(vertex)
 
         angle = math.atan2(end.y() - tail.y(), end.x() - tail.x())
         length = cell * (.36 if preview else .29)
@@ -82,29 +134,32 @@ def paint_arrows(painter, rect, white_bottom, arrows, overlap_color=DEFAULT_OVER
             continue
         painter.fillPath(shape, color)
         bounds = shape.boundingRect()
-        segments = [(start, tail), (tail, end)] if tail != start else [(start, end)]
-        for other, other_bounds, other_segments in shapes:
+        segments = tuple(zip(points, points[1:]))
+        for other, other_bounds, other_segments in ([] if ply else shapes):
             if bounds.intersects(other_bounds) and any(
                     shafts_share_segment(segment, previous, cell)
                     for segment in segments for previous in other_segments):
                 overlaps = overlaps.united(shape.intersected(other))
-        shapes.append((shape, bounds, segments))
+        if not ply:
+            shapes.append((shape, bounds, segments))
 
-        if arrow.get("label"):
-            labels.append((arrow["label"], start * .28 + end * .72, color))
+        label = str(ply) if ply else arrow.get("label")
+        if label:
+            labels.append((label, shaft, color))
 
     painter.fillPath(overlaps, QColor(overlap_color))
     if labels:
-        font = QFont("Arial", max(8, round(cell * .12)), QFont.Weight.Bold)
+        font = QFont("Arial", max(9, round(cell * .14)), QFont.Weight.Bold)
         painter.setFont(font)
         metrics = QFontMetricsF(font)
-        for label, center, color in labels:
+        for label, shaft, color in labels:
             width, height = metrics.horizontalAdvance(label) + 8, metrics.height() + 3
-            box = QRectF(center.x() - width / 2, center.y() - height / 2, width, height)
-            painter.setPen(Qt.PenStyle.NoPen)
+            box = arrow_label_box(shaft, width, height, badge_boxes, rect)
+            badge_boxes.append(box)
+            painter.setPen(QPen(color, max(1, cell * .025)))
             painter.setBrush(QColor("#152630"))
             painter.drawRoundedRect(box, 2, 2)
-            painter.setPen(color.lighter(130))
+            painter.setPen(Qt.GlobalColor.white)
             painter.drawText(box, Qt.AlignmentFlag.AlignCenter, label)
     for shape, color in previews:
         painter.strokePath(shape, QPen(QColor("#2c173f"), max(2, cell * .055),

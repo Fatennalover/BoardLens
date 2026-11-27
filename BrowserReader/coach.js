@@ -103,6 +103,7 @@ const boardLensCoach = (() => {
 
     return {
         get showArrows() { return settings.showArrows; },
+        get candidateCount() { return settings.coachEnabled ? Number(settings.coachMoves) : null; },
         update(coach, hasHint = false) {
             snapshot = coach || null;
             hadHint = hasHint;

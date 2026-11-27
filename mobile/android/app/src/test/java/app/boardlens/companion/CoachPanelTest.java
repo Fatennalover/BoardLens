@@ -29,4 +29,13 @@ public class CoachPanelTest {
         assertTrue(black.text().contains("Black’s perspective"));
         assertEquals(white.whiteShare(), black.whiteShare(), 0f);
     }
+
+    @Test public void lookaheadDropsIllegalMovesBeforeExtendingAPreview() {
+        var board = new ChessPosition(ChessPosition.START_FEN);
+        var line = new PhoneEngine.Line("e2e4", 12, null, 10, List.of("e2e4", "e4e5", "c7c5"));
+        var path = new java.util.ArrayList<String>();
+        var end = LocalEngines.extend(board,line,path,16);
+        assertEquals(List.of("e2e4"),path);
+        assertEquals(board.play("e2e4").fen(),end.fen());
+    }
 }

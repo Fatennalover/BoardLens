@@ -22,7 +22,7 @@ public class MaiaBudgetTest {
     app.getSharedPreferences("phone-model-files",0).edit().putString("maia3-5m",PhoneModels.entry(app,"maia3-5m").getString("sha256")).commit();
   }
   @Test public void timeBudgetStopsExtraPassesButAlwaysPublishesFirstMoveAndReusesPredictions()throws Exception{
-    install();var app=RuntimeEnvironment.getApplication();PhoneSettings settings=new PhoneSettings(app,"maia-budget");settings.p.edit().clear().putString("engine","maia3-5m").putFloat("seconds",.05f).putFloat("prediction_seconds",30f).apply();
+    install();var app=RuntimeEnvironment.getApplication();PhoneSettings settings=new PhoneSettings(app,"maia-budget");settings.p.edit().clear().putString("engine","maia3-5m").putInt("moves",1).putFloat("seconds",.05f).putFloat("prediction_seconds",30f).apply();
     AtomicLong clock=new AtomicLong();AtomicBoolean firstPublished=new AtomicBoolean();
     try(LocalEngines engines=new LocalEngines(clock::get)){
       engines.prepare(app,settings,false);MaiaLocal model=(MaiaLocal)get(engines,"maia");assertNotNull(get(model,"session"));assertEquals(0L,get(model,"inferenceCount"));

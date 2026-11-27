@@ -14,4 +14,21 @@ public class EngineProtocolTest {
    engine.search(RuntimeEnvironment.getApplication(),board,settings,false,null);
    assertTrue(commands.contains("go movetime 286 depth 10"));
  }
+
+ @Test public void lockedSuggestionsGrowFromOneToFourAndKeepTheirReplies() {
+   PhoneEngine.Line e4 = new PhoneEngine.Line("e2e4", 20, null, 4, List.of("e2e4"));
+   PhoneEngine.Line e4WithReply = new PhoneEngine.Line("e2e4", 40, null, 14, List.of("e2e4", "e7e5"));
+   PhoneEngine.Line d4 = new PhoneEngine.Line("d2d4", 50, null, 14, List.of("d2d4", "d7d5"));
+   PhoneEngine.Line nf3 = new PhoneEngine.Line("g1f3", 10, null, 14, List.of("g1f3"));
+   PhoneEngine.Line c4 = new PhoneEngine.Line("c2c4", 5, null, 14, List.of("c2c4"));
+   PhoneEngine.Result early = new PhoneEngine.Result("same-position", "test", List.of(e4));
+   PhoneEngine.Result complete = new PhoneEngine.Result("same-position", "test", List.of(d4, e4WithReply, nf3, c4));
+   PhoneEngine.Result locked = PhoneEngine.lockSuggestions(early, complete, 4);
+   assertEquals(List.of("e2e4", "d2d4", "g1f3", "c2c4"),
+       locked.lines().stream().map(PhoneEngine.Line::move).toList());
+   assertEquals(e4WithReply.pv(), locked.lines().get(0).pv());
+   assertEquals(e4.cp(), locked.lines().get(0).cp());
+   PhoneEngine.Result moved = new PhoneEngine.Result("new-position", "test", List.of(d4));
+   assertSame(moved, PhoneEngine.lockSuggestions(locked, moved, 4));
+ }
 }

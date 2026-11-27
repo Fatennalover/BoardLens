@@ -16,7 +16,7 @@ from .openings import opening_name, played_moves
 from .overlay import score_arrow_points, score_badge_points, space_score_badge
 
 NUMBERS={'advantage_seconds':'Scoring time (seconds)','advantage_depth':'Scoring depth','advantage_count':'Moves to compare (0 off)','prediction_plies':'Prediction length (plies)','prediction_seconds':'Reply time budget (seconds)','eval_seconds':'Evaluation think time','eval_depth':'Evaluation depth cap','eval_human_elo':'Evaluation human rating','seconds':'Think time (seconds)','depth':'Search depth','multipv':'Recommendation arrows','threads':'CPU threads per board','hash_mb':'Hash memory (MB)','arrow_count':'Arrow candidates','engine_skill':'Stockfish skill (0–20)','engine_elo':'Stockfish Elo','human_elo':'Maia target human rating'}
-BOOLEANS={'advantage_gain_arrows':'Score arrows','advantage_positive_only':'Gains only','browser_eval_enabled':'Browser evaluation','screen_eval_enabled':'Screen evaluation','predict_continuations':'Predict opponent and my next move','only_my_color':'Only my color','stick_to_move':'Stick to one move','overlay_enabled':'Computer screen arrows','arrow_labels':'Arrow rank labels','show_white':'White suggestions','show_black':'Black suggestions','show_reply':'Opponent best reply','rank_best':'Show #1','rank_second':'Show #2','rank_others':'Show #3 and later','early_suggestions':'Show moves while thinking','global_keys':'Global keyboard shortcuts','always_top':'Desktop stays on top','steady_arrows':'Steady arrows · keep calculating','dashed_reply':'Dashed opponent reply arrow (desktop)'}
+BOOLEANS={'advantage_gain_arrows':'Score arrows','advantage_positive_only':'Gains only','browser_eval_enabled':'Browser evaluation','screen_eval_enabled':'Screen evaluation','predict_continuations':'Predict opponent and my next move','only_my_color':'Only my color','stick_to_move':'Lock moves','overlay_enabled':'Computer screen arrows','arrow_labels':'Arrow rank labels','show_white':'White suggestions','show_black':'Black suggestions','show_reply':'Opponent best reply','rank_best':'Show #1','rank_second':'Show #2','rank_others':'Show #3 and later','early_suggestions':'Show moves while thinking','global_keys':'Global keyboard shortcuts','always_top':'Desktop stays on top','steady_arrows':'Steady arrows · keep calculating','dashed_reply':'Dashed opponent reply arrow (desktop)'}
 ENUMS={'advantage_mode':'Scoring search limit','advantage_engine':'Scoring engine','eval_engine':'Evaluation engine','mode':'Engine limit','source':'Board source','orientation':'Board orientation','turn':'Primary board turn','monitor':'Monitor to scan','engine_kind':'Analysis engine · choose manually','strength_mode':'Stockfish strength mode','playing_style':'Playing style','compare_a':'Compare engine A','compare_b':'Compare engine B','compare_c':'Compare engine C'}
 ENUMS.update(source='Read from',turn='Side to move',monitor='Display to read')
 BOOLEANS.update(auto_updates='Automatic desktop updates',threats_enabled='Threat highlights',threat_attacks='Attacked squares',threat_mates='Mate-in-one targets',lock_target='Lock target board')
@@ -108,40 +108,41 @@ class PhoneCompanion(QObject):
         values['custom_engine']=w.custom_engine.text();schema.append({'key':'custom_engine','label':'Desktop custom UCI path','type':'text'})
         return values,schema
 
-    def board(self,identity,title,board,bottom,result,displayed,arrows,known=True):
+    def board(self,identity,title,board,bottom,result,displayed,arrows,known=True,analysis_state=''):
         marks,messages=self.window.threat_marks(board,bottom)
         gains = self.window.move_advantage.marks(board) if identity == 'primary' else []
+        available = analysis_state not in ('Paused','Unavailable')
+        if not available:
+            marks,messages,gains,arrows,result,displayed = [],[],[],[],None,None
         key=(identity,board.fen(),bottom,tuple((a['move'].uci(),a['color']) for a in arrows),tuple((m['square'],m['color']) for m in marks),
              tuple((g['move'],g['label'],g['color']) for g in gains))
-        if key not in self.svg_cache:
-            if len(self.svg_cache)>18:self.svg_cache.clear()
+        cached_svg = self.svg_cache.get(identity)
+        if cached_svg is None or cached_svg[0] != key:
             svg = chess.svg.board(board, orientation=bottom, size=600,
                 arrows=[chess.svg.Arrow(a['move'].from_square, a['move'].to_square,
                                        color=a['color']) for a in arrows],
                 fill={m['square']:m['color']+'44' for m in marks if m['kind'] != 'attack'})
-            self.svg_cache[key] = svg[:-6] + gain_svg(gains, bottom) + '</svg>'
+            self.svg_cache[identity] = (key,svg[:-6] + gain_svg(gains, bottom) + '</svg>')
         lead=self.window.evaluations.score(board,result)
         w=self.window;current,other=(board.turn==bottom,False) if w.only_my_color.isChecked() else ((w.show_white.isChecked(),w.show_black.isChecked()) if board.turn else (w.show_black.isChecked(),w.show_white.isChecked()))
         lines=[]
         if displayed and current:
-            for rank,line in enumerate(displayed['lines'][:1 if w.stick_to_move.isChecked() else w.multipv.value()],1):
+            for rank,line in enumerate(displayed['lines'][:w.multipv.value()],1):
                 if not w.visible_rank(rank):continue
                 item=dict(deepcopy(line),rank=rank)
                 if not w.predict_continuations.isChecked():item['future_simple']=''
-                if w.only_my_color.isChecked() or w.stick_to_move.isChecked() or not other or not w.show_reply.isChecked():
+                if w.only_my_color.isChecked() or not other or not w.show_reply.isChecked():
                     item['reply']=item['reply_simple']=''
-                if w.only_my_color.isChecked() or w.stick_to_move.isChecked():item['pv']=''
+                if w.only_my_color.isChecked():item['pv']=''
                 lines.append(item)
         history_key = (key[1], tuple(board.move_stack), w._opening_index is not None)
         cached = self.move_logs.get(identity)
         if cached is None or cached[0] != history_key:
-            if len(self.move_logs) >= 12:
-                self.move_logs.clear()
             cached = history_key, played_moves(board), opening_name(board, w._opening_index)
             self.move_logs[identity] = cached
         comparison = w.move_advantage.result if identity == 'primary' else None
-        return {'id':identity,'title':title,'fen':key[1],'svg':self.svg_cache[key],
-                'move_advantage':comparison if comparison and comparison['fen']==key[1] else None,
+        return {'id':identity,'title':title,'fen':key[1],'svg':self.svg_cache[identity][1], 'analysis_state':analysis_state,
+                'move_advantage':comparison if comparison and comparison['fen']==key[1] and available else None,
                 'played_moves':cached[1],'opening':cached[2],'turn':'White' if board.turn else 'Black',
                 'your_color':'White' if bottom else 'Black','turn_known':known,'lines':lines,'cp':lead['cp'] if lead else None,
                 'mate':lead.get('mate'),'white_share':lead.get('white_share'),
@@ -157,11 +158,18 @@ class PhoneCompanion(QObject):
         w=self.window;boards=[]
         primary_valid=w.practice or w._reviewing or (w.source.currentIndex()==2 and w.snapshot is not None) or (w._position_locked and w._last_read is not None and w._lost_frames<3)
         if primary_valid:
-            boards.append(self.board('primary','Board 1',w.tracker.board,w.white_bottom,w.result,w.displayed_result(w.result),w.board_view.arrows,w._turn_known))
+            availability = 'Unavailable' if w.source.currentIndex()==1 and not w._screen_confirmed and not w._reviewing else ''
+            boards.append(self.board('primary','Board 1',w.tracker.board,w.white_bottom,w.result,w.displayed_result(w.result),w.board_view.arrows,w._turn_known,availability))
         for index,state in enumerate(w.multi.states,2):
-            if state.tracker and state.misses<3:
+            if state.tracker:
                 shown=state.pinned if w.stick_to_move.isChecked() else state.hint_filter.select(state.result,w.steady_arrows.isChecked())
-                boards.append(self.board(str(state.identity),f'Board {index}',state.tracker.board,state.read.white_bottom,state.result,shown,state.card.view.arrows,state.known))
+                availability = ('Paused' if state.paused else 'Unavailable' if not state.confirmed
+                                else 'Queued' if state.future and not state.future.running() else '')
+                boards.append(self.board(str(state.identity),f'Board {index}',state.tracker.board,state.read.white_bottom,state.result,shown,state.card.view.arrows,state.known,availability))
+        active = {board['id'] for board in boards}
+        for cache in (self.svg_cache,self.move_logs):
+            for identity in set(cache)-active:
+                del cache[identity]
         for board in boards:
             board['turn_override']=w.turn.currentIndex() if board['id']=='primary' else next(s.card.turn.currentIndex() for s in w.multi.states if str(s.identity)==board['id'])
         values,schema=self.schema()

@@ -4,7 +4,7 @@ from copy import deepcopy
 import math,threading,time
 import chess
 from PySide6.QtCore import QObject,Signal
-from .core import SearchSettings
+from .core import MAX_LOOKAHEAD_PLIES, SearchSettings
 from .engine import EngineJob,EngineSession
 from . import engine_config,engine_library
 
@@ -32,7 +32,7 @@ class PhoneAnalysis(QObject):
         threads=number('threads',1,1,64,True);skill=number('skill',20,0,20,True)
         mode=payload.get('mode','Time + depth')
         if mode not in ('Time','Depth','Time + depth'):raise ValueError('Invalid search limit.')
-        prediction_plies=number('prediction_plies',3,1,12,True);prediction_seconds=number('prediction_seconds',3.,.1,60)
+        prediction_plies=number('prediction_plies',3,1,MAX_LOOKAHEAD_PLIES,True);prediction_seconds=number('prediction_seconds',3.,.1,60)
         predict=payload.get('predict',True)
         if not isinstance(predict,bool):raise ValueError('Invalid prediction toggle.')
         settings=SearchSettings(seconds=seconds,depth=depth,mode='Time' if chosen.kind=='tiny' else mode,multipv=1 if chosen.kind=='tiny' else count,threads=threads,hash_mb=64,skill=skill,strength='Skill level' if chosen.kind=='stockfish' and skill<20 else 'Full strength',engine_kind=chosen.identity if chosen.kind=='tiny' else chosen.kind,engine_id=chosen.identity,human_elo=rating,predict_continuations=predict,prediction_plies=prediction_plies,prediction_seconds=prediction_seconds)

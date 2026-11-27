@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import chess
 import numpy as np
+import pytest
 
 from chess_helper.app import MainWindow, SCREEN_REFRESH_MS
 from chess_helper.core import save_settings
@@ -120,7 +121,7 @@ def test_hidden_overlay_is_always_excluded_during_capture_races(qt,monkeypatch):
     monkeypatch.setattr(window.overlay,'isVisible',lambda:False)
     captures=[]
     monkeypatch.setattr(native_capture,'capture_frames',lambda specs,excluded,cancelled:captures.append((specs,excluded)) or [])
-    monkeypatch.setattr(window.live_worker,'submit',lambda token,provider,hint:provider(__import__('threading').Event()))
+    monkeypatch.setattr(window.live_worker,'submit',lambda token,provider,*args:provider(__import__('threading').Event()))
     window._monitoring=True
     window.request_scan()
     assert captures[0][1]=={12345}
@@ -156,6 +157,50 @@ def test_only_the_shared_part_of_overlapping_arrows_changes_color(qt):
         assert image.pixelColor(250, 300).blue() > image.pixelColor(250, 300).red()
         assert image.pixelColor(50, 700).red() > image.pixelColor(50, 700).blue()
         assert image.pixelColor(400, 300).alpha() == 0
+
+
+@pytest.mark.parametrize("projected", [False, True])
+def test_flipped_lookahead_numbers_follow_knight_bend_and_separate_capture(qt, projected):
+    from PySide6.QtCore import QRectF, Qt
+    from PySide6.QtGui import QImage, QPainter
+    from chess_helper.overlay import paint_arrows
+
+    board = chess.Board("rn1q4/ppp2kpp/1b2bn2/4P3/8/6Q1/PPP2PPP/RNB1K2R b KQ - 4 12")
+    arrows = []
+    for ply, (san, color) in enumerate(zip(("Ne4", "Qf4+", "Kg8", "Qxe4"),
+                                           ("#bb88ff", "#ffbb77", "#88eeff", "#ff88bb")), 1):
+        arrows.append(dict(move=board.push_san(san), color=color, dashed=True, lookahead_ply=ply))
+    if projected:
+        points = {square: ((7.5 - chess.square_file(square)) / 8, (.5 + chess.square_rank(square)) / 8)
+                  for square in chess.SQUARES}
+        for arrow in arrows:
+            arrow["points"] = points
+
+    class RecordingPainter(QPainter):
+        def drawText(self, box, alignment, label):
+            numbers[label] = QRectF(box)
+            super().drawText(box, alignment, label)
+
+    image = QImage(800, 800, QImage.Format.Format_ARGB32_Premultiplied)
+    image.fill(Qt.GlobalColor.transparent)
+    numbers = {}
+    painter = RecordingPainter(image)
+    try:
+        paint_arrows(painter, QRectF(0, 0, 800, 800), False, arrows)
+    finally:
+        painter.end()
+    assert list(numbers) == ["1", "2", "3", "4"]
+    knight_number = numbers["1"].center()
+    assert knight_number.x() == 250 and 350 < knight_number.y() < 550  # f6 to f4
+    assert all(not box.intersects(other) for key, box in numbers.items()
+               for other_key, other in numbers.items() if key != other_key)
+    # The knight and the final queen capture both finish on e4, on distinct lanes.
+    first_tip = image.pixelColor(346, 350)
+    assert first_tip.blue() > first_tip.red() and first_tip.alpha() > 180
+    queen_number = numbers["4"].center()
+    assert 250 < queen_number.x() < 350 and abs(queen_number.y() - 350) >= 20
+    last_tip = image.pixelColor(346, round(queen_number.y()))
+    assert last_tip.red() > last_tip.blue() and last_tip.alpha() > 180
 
 
 def test_overlap_picker_applies_and_saves_the_color(qt, monkeypatch):

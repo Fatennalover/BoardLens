@@ -17,6 +17,7 @@ final class ArrowOverlay extends View {
   private boolean evaluationVisible;private String score="…",evaluationPosition="Auto";private volatile RectF evaluationBounds;
   private final Paint pen = new Paint(3);
   private List<Integer> customColors=List.of();
+  private List<Integer> predictionPlies=List.of();
   private final int[] colors = {0xffffd16c, 0xff51d9da, 0xffb0a4ff};
   private final FloatingEvaluation floating;
   private float evaluationTarget=.5f;
@@ -37,7 +38,12 @@ final class ArrowOverlay extends View {
     show(geometry,whiteBottom,arrows,List.of(),showEvaluation,label,share,placement);
   }
   void show(BoardGeometry geometry,boolean whiteBottom,List<String> arrows,List<Integer> arrowColors,boolean showEvaluation,String label,float share,String placement){
+    show(geometry, whiteBottom, arrows, arrowColors, List.of(), showEvaluation, label, share, placement);
+  }
+  void show(BoardGeometry geometry,boolean whiteBottom,List<String> arrows,List<Integer> arrowColors,
+            List<Integer> plies,boolean showEvaluation,String label,float share,String placement){
     customColors=List.copyOf(arrowColors);
+    predictionPlies=List.copyOf(plies);
     evaluationVisible=showEvaluation;score=label;evaluationPosition=placement;
     evaluationTarget=Math.max(0,Math.min(1,share));
 
@@ -155,6 +161,7 @@ final class ArrowOverlay extends View {
     canvas.translate(-location[0], -location[1]);
     float cell = board.width() / 8f;
     float[] current = segments;
+    Map<Integer, RectF> badges = new LinkedHashMap<>();
     for (int i = 0; i < current.length / 4; i++) {
       float ax = current[4 * i], ay = current[4 * i + 1], bx = current[4 * i + 2], by = current[4 * i + 3];
       double angle = Math.atan2(by - ay, bx - ax);
@@ -165,7 +172,25 @@ final class ArrowOverlay extends View {
       pen.setColor(i < customColors.size() ? customColors.get(i) : colors[i % colors.length]);
       pen.setStrokeWidth(cell * (narrow[i] ? .056f : .10f));
       pen.setStrokeCap(Paint.Cap.ROUND);
+      boolean numbered = i < predictionPlies.size() && predictionPlies.get(i) > 0;
+      if (numbered) {
+        float dash = Math.max(3, cell * .16f);
+        pen.setPathEffect(new DashPathEffect(new float[]{dash, dash * .6f}, 0));
+      }
       canvas.drawLine(ax, ay, tailX, tailY, pen);
+      pen.setPathEffect(null);
+      if (numbered) {
+        int ply = predictionPlies.get(i);
+        float height = Math.max(15, cell * .36f), width = ply < 10 ? height : height * 1.35f;
+        for (float t : new float[]{.56f, .40f, .72f, .25f, .83f}) {
+          float x = ax + (bx - ax) * t, y = ay + (by - ay) * t;
+          RectF box = new RectF(x - width / 2, y - height / 2, x + width / 2, y + height / 2);
+          if (badges.values().stream().noneMatch(other -> RectF.intersects(other, box)) || t == .83f) {
+            badges.put(ply, box);
+            break;
+          }
+        }
+      }
       Path p = new Path();
       p.moveTo(bx, by);
       p.lineTo(bx - (float) Math.cos(angle - spread) * head, by - (float) Math.sin(angle - spread) * head);
@@ -175,6 +200,17 @@ final class ArrowOverlay extends View {
       canvas.drawPath(p, pen);
     }
 
+    for (var badge : badges.entrySet()) {
+      RectF box = badge.getValue();
+      pen.setColor(0xff152630);
+      canvas.drawRoundRect(box, box.height() * .22f, box.height() * .22f, pen);
+      pen.setColor(Color.WHITE);
+      pen.setTextSize(box.height() * .76f);
+      pen.setTypeface(Typeface.DEFAULT_BOLD);
+      pen.setTextAlign(Paint.Align.CENTER);
+      float baseline = box.centerY() - (pen.ascent() + pen.descent()) / 2;
+      canvas.drawText(Integer.toString(badge.getKey()), box.centerX(), baseline, pen);
+    }
     canvas.restore();
   }
   @Override protected void onSizeChanged(int w,int h,int oldw,int oldh){super.onSizeChanged(w,h,oldw,oldh);updateEvaluation();}

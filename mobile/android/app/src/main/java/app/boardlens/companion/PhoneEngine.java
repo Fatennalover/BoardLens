@@ -11,6 +11,25 @@ final class PhoneEngine implements AutoCloseable {
 
   record Result(String fen, String provider, List<Line> lines) {}
 
+  static Result lockSuggestions(Result pinned, Result incoming, int count) {
+    if (pinned == null || !pinned.fen().equals(incoming.fen())) return incoming;
+
+    Map<String, Line> choices = new LinkedHashMap<>();
+    for (Line line : pinned.lines()) choices.put(line.move(), line);
+    for (Line line : incoming.lines()) {
+      Line previous = choices.get(line.move());
+      if (previous != null) {
+        if (line.pv().size() > previous.pv().size()) {
+          choices.put(line.move(), new Line(previous.move(), previous.cp(), previous.mate(),
+                                           previous.depth(), line.pv()));
+        }
+      } else if (choices.size() < count) {
+        choices.put(line.move(), line);
+      }
+    }
+    return new Result(pinned.fen(), pinned.provider(), List.copyOf(choices.values()));
+  }
+
   interface Update {
     void result(Result r);
   }

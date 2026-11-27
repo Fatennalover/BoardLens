@@ -7,7 +7,7 @@ from threading import Thread
 import chess
 from PySide6.QtCore import QObject, QSignalBlocker, Qt, Signal
 from PySide6.QtWidgets import (QComboBox, QDialog, QGridLayout, QLabel, QListWidget,
-                               QPushButton, QSplitter, QVBoxLayout, QWidget)
+                               QPushButton, QSpinBox, QSplitter, QVBoxLayout, QWidget)
 
 from . import engine_config, engine_library
 from .engine import EngineJob, EngineSession
@@ -65,6 +65,7 @@ class GameReview(QDialog):
         self.played = MoveLine(board.root(), board.move_stack)
         self.line = self.played
         self.continuation = None
+        self.continuations = []
         self.generation = 0
         self.job = None
 
@@ -86,14 +87,24 @@ class GameReview(QDialog):
         self.analyze.setToolTip("Analyze every recorded position with the chosen engine.")
         self.analyze.clicked.connect(lambda: self.start(False))
         self.play_out = QPushButton("Play out from here")
-        self.play_out.setToolTip("Let the chosen engine play both sides for up to 50 moves.")
+        self.play_out.setToolTip("Create a new predicted line using the selected first choice, then let the engine play both sides.")
         self.play_out.clicked.connect(lambda: self.start(True))
+        self.extend = QPushButton("Extend line")
+        self.extend.clicked.connect(lambda: self.start(True, extend=True))
         self.cancel_button = QPushButton("Stop")
         self.cancel_button.clicked.connect(self.cancel)
+        self.plies = QSpinBox()
+        self.plies.setRange(1,300);self.plies.setValue(CONTINUATION_PLIES);self.plies.setSuffix(' plies')
+        self.plies.setToolTip('One ply is one side’s move. The engine can stop sooner at a terminal position.')
+        self.choice = QSpinBox()
+        self.choice.setRange(1,5)
+        self.choice.setToolTip('Rank of the engine move to play first in a new predicted line.')
         actions.addWidget(QLabel("Engine"), 0, 0)
         actions.addWidget(self.engine, 0, 1, 1, 3)
-        for col, button in enumerate((self.analyze, self.play_out, self.cancel_button), 1):
+        for col, button in enumerate((self.analyze, self.play_out, self.extend, self.cancel_button)):
             actions.addWidget(button, 1, col)
+        actions.addWidget(QLabel('First choice'),2,0);actions.addWidget(self.choice,2,1)
+        actions.addWidget(QLabel('Line length'),2,2);actions.addWidget(self.plies,2,3)
         root.addLayout(actions)
 
         split = QSplitter(Qt.Orientation.Horizontal)
@@ -167,7 +178,7 @@ class GameReview(QDialog):
         self.show_position(self.moves.currentRow())
 
     def select_line(self, index):
-        self.line = self.continuation if index == 1 and self.continuation else self.played
+        self.line = self.continuations[index-1][0] if index > 0 else self.played
         self.fill_moves(0)
 
     def clear_results(self):
@@ -181,7 +192,7 @@ class GameReview(QDialog):
         board = self.line.position(index)
         self.view.set_position(board, self.white_bottom)
         score = self.line.results.get(index) or {}
-        outcome = board.outcome(claim_draw=self.line is self.continuation)
+        outcome = board.outcome(claim_draw=self.line is not self.played)
         result = outcome_text(outcome)
         self._can_play = outcome is None
         turn = "White" if board.turn else "Black"
@@ -216,10 +227,13 @@ class GameReview(QDialog):
         self.engine.setEnabled(not busy)
         self.analyze.setEnabled(not busy)
         self.play_out.setEnabled(not busy and self._can_play)
+        self.extend.setEnabled(not busy and self.line is not self.played and self.line.tail.outcome(claim_draw=True) is None)
+        self.choice.setEnabled(not busy)
+        self.plies.setEnabled(not busy)
         self.cancel_button.setEnabled(busy)
 
-    def start(self, simulate):
-        engine_index = self.engine.currentData()
+    def start(self, simulate, extend=False):
+        engine_index = self.continuations[self.line_picker.currentIndex()-1][1] if extend else self.engine.currentData()
         try:
             path = engine_config.command(self.workspace, engine_index)
         except (ValueError, OSError) as error:
@@ -233,32 +247,35 @@ class GameReview(QDialog):
                            mode=self.workspace.mode.currentText(),
                            strength=settings.strength if same_engine else "Full strength",
                            style=settings.style if same_engine else "Balanced")
-        start_board = self.line.position(self.moves.currentRow()) if simulate else self.played.start.copy()
+        start_board = (self.line.tail.copy() if extend else self.line.position(self.moves.currentRow())
+                       if simulate else self.played.start.copy())
         played = () if simulate else tuple(self.played.moves)
-        if simulate:
+        if simulate and not extend:
             self.continuation = MoveLine(start_board)
+            self.continuations.append((self.continuation, engine_index))
             with QSignalBlocker(self.line_picker):
-                if self.line_picker.count() == 1:
-                    self.line_picker.addItem("Engine continuation")
-                self.line_picker.setItemText(1, f"Continuation · {entry.label}")
-                self.line_picker.setCurrentIndex(1)
+                self.line_picker.addItem(f'Line {len(self.continuations)} · {entry.label}')
+                self.line_picker.setCurrentIndex(len(self.continuations))
             self.line = self.continuation
             self.fill_moves(0)
-        else:
+        elif not simulate:
             self.played.results.clear()
             self.line_picker.setCurrentIndex(0)
         self.generation += 1
         self.job = job = EngineJob()
         generation = self.generation
-        self.job_line = self.continuation if simulate else self.played
+        self.job_line = self.line if simulate else self.played
+        offset = len(self.job_line.moves) if extend else 0
+        rank = self.choice.value() if simulate and not extend else 1
+        length = self.plies.value()
         self.refresh_position()
         self.progress.setText("Analyzing with " + entry.label + "…")
-        Thread(target=self.run, args=(generation, job, path, settings, start_board, played, simulate),
+        Thread(target=self.run, args=(generation,job,path,settings,start_board,played,simulate,offset,length,rank),
                daemon=True, name="BoardLens-game-review").start()
 
-    def run(self, generation, job, path, settings, board, played, simulate):
+    def run(self, generation, job, path, settings, board, played, simulate, offset, length, first_rank):
         session = job.session = EngineSession()
-        maximum = CONTINUATION_PLIES if simulate else len(played) + 1
+        maximum = length if simulate else len(played) + 1
         message = "Game analysis complete"
         try:
             for index in range(maximum):
@@ -268,23 +285,26 @@ class GameReview(QDialog):
                 if outcome is not None:
                     message = outcome_text(outcome)
                     break
-                result = job.run(path, board, settings)
+                rank = first_rank if index == 0 else 1
+                result = job.run(path, board, replace(settings,multipv=rank))
                 if job.cancelled.is_set():
                     return
                 if not result:
                     raise ValueError("The engine returned no analysis.")
-                score = dict(result["lines"][0], engine=result["engine"])
+                if len(result['lines']) < rank:
+                    raise ValueError(f"The engine returned {len(result['lines'])} choices. Select a lower first choice.")
+                score = dict(result["lines"][rank-1], engine=result["engine"])
                 move = chess.Move.from_uci(score["move"]) if simulate else None
                 if move is not None and move not in board.legal_moves:
                     raise ValueError("The engine returned an illegal move.")
-                self.signals.position.emit(generation, index, score, move)
+                self.signals.position.emit(generation, offset+index, score, move)
                 if simulate:
                     board.push(move)
                 elif index < len(played):
                     board.push(played[index])
             if simulate:
                 message = (outcome_text(board.outcome(claim_draw=True))
-                           or f"Continuation paused after {CONTINUATION_PLIES // 2} moves")
+                           or f"Continuation paused after {offset+maximum} plies. Select Extend line to continue.")
         except Exception as error:
             message = "Could not analyze: " + str(error)
         finally:

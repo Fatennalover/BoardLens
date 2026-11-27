@@ -32,5 +32,18 @@ def merge_continuation(displayed,incoming):
     for line in displayed.get('lines',[]):
         newer=by_move.get(line['move'])
         if newer and len(newer.get('pv_moves',[]))>len(line.get('pv_moves',[])):
-            for key in ('pv','pv_moves','reply','reply_move','reply_simple','future_move','future_simple'):
+            for key in ('pv','pv_moves','reply','reply_move','reply_simple','future_move','future_simple','prediction'):
                 if key in newer:line[key]=newer[key]
+
+
+def merge_locked_suggestions(locked, incoming, count):
+    """Keep each visible choice in its original slot and fill unshown slots as data arrives."""
+    merge_continuation(locked, incoming)
+    moves = {line['move'] for line in locked['lines']}
+    for line in incoming['lines']:
+        if len(locked['lines']) >= count:
+            break
+        if line['move'] not in moves:
+            locked['lines'].append(deepcopy(line))
+            moves.add(line['move'])
+    locked['continuation_pending'] = incoming.get('continuation_pending', False)

@@ -196,10 +196,13 @@ class CoachPane(ResponsiveScrollArea):
         self._layout.addWidget(hero)
         self._layout.addStretch()
 
-    def preview_for(self, fen):
+    def preview_for(self, fen, *, automatic=False):
         if self._preview and self._preview[0] == fen:
             moves = (self._guidance[1] or {}).get("moves", ())
             return next((move for move in moves if move["uci"] == self._preview[1]), None)
+        if automatic and self._guidance and self._guidance[0] == fen:
+            moves = (self._guidance[1] or {}).get("moves", ())
+            return moves[0] if moves else None
         return None
 
     def _toggle_preview(self, uci):

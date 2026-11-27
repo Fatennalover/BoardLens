@@ -180,7 +180,7 @@ def test_predicted_line_is_separate_from_the_current_arrow_count(qt):
         moves = [chess.Move.from_uci(uci) for uci in ("e2e4", "e7e5", "g1f3")]
         result = summarize(board, [{"pv": moves, "score": chess.engine.PovScore(chess.engine.Cp(25), True)}], "QA")
         window.engine_progress(window.generation, result)
-        assert "Predicted line · 3 turns · e4 → e5 → Nf3" == window.predicted_line.text()
+        assert "Predicted line · 3 plies · e4 → e5 → Nf3" == window.predicted_line.text()
         assert not window.predicted_line.isHidden()
         assert window.quick_arrow_count.value() == 4
         window.set_position(chess.Board("4k3/8/8/8/8/8/P7/4K3 w - - 0 1"))

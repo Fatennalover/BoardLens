@@ -55,8 +55,8 @@ def test_stop_is_responsive_during_detection_and_discards_late_results(qt, monke
     def slow(*args, **kwargs):
         entered.set()
         time.sleep(.8)
-        return None
-    monkeypatch.setattr(Recognizer, "scan", slow)
+        return []
+    monkeypatch.setattr(Recognizer, "scan_all", slow)
     window = MainWindow()
     window.show()
     window.source.setCurrentIndex(1)

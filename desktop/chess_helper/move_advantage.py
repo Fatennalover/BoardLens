@@ -219,7 +219,7 @@ class MoveAdvantage(QWidget):
     def refresh(self):
         w = self.workspace
         count = self.count.value()
-        board = w.tracker.board if w.editable_position or w._reviewing or w._screen_confirmed else None
+        board = w.tracker.board if w.editable_position or w._reviewing or (w._screen_confirmed and w._turn_known) else None
         if not count or board is None or not board.is_valid() or board.is_game_over() or w.game_ended:
             self.clear()
             self.output.setPlainText("Choose 1–6 moves to compare." if not count else "Waiting for a playable position.")

@@ -25,8 +25,9 @@ chrome.runtime.onMessage.addListener((m,sender,respond)=>{
   if(Date.now()<retryAt)return {error:connection.message};
   const source=String(sender.tab.id);
   const focused=typeof m.focused==='boolean'?m.focused&&sender.tab.active!==false:undefined;
-  const posted=await desktop('/boards',{source,boards:m.boards,focused,dashboard:m.dashboard===true});if(posted.error)return posted;
+  const visible=typeof m.visible==='boolean'?m.visible:undefined;
+  const posted=await desktop('/boards',{source,boards:m.boards,focused,visible,dashboard:m.dashboard===true});if(posted.error)return posted;
   const hints=posted.hints??await desktop('/hints');if(hints.error)return hints;
-  return {...Object.fromEntries(Object.entries(hints).filter(([key])=>key.startsWith('browser:'+sender.tab.id+':'))),evaluation_visible:posted.evaluation_visible};
+  return {...Object.fromEntries(Object.entries(hints).filter(([key])=>key.startsWith('browser:'+sender.tab.id+':'))),evaluation_visible:posted.evaluation_visible,arrows_visible:posted.arrows_visible};
  })().then(respond,e=>respond({error:e.message}));return true;
 });

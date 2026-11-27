@@ -3,7 +3,7 @@ from pathlib import Path
 import chess
 import pytest
 from PySide6.QtCore import QUrl
-from PySide6.QtWidgets import QFileDialog
+from PySide6.QtWidgets import QFileDialog, QInputDialog
 
 from chess_helper.app import MainWindow
 from chess_helper.core import find_engine
@@ -64,10 +64,12 @@ def test_a_screenshot_stays_editable_as_the_engine_follows_moves(qt, monkeypatch
         prepare_engine(window)
         image = Path(__file__).parent / "fixtures/chesscom-italian-white.png"
         monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *a, **k: (str(image), ""))
+        monkeypatch.setattr(QInputDialog, "getItem", lambda *a, **k: ("White", True))
         window.quick_source.setCurrentIndex(2)
         assert not window.editable_position
         assert window.board_stack.currentIndex() == 1
         window.empty_scan_button.click()
+        wait(qt, lambda: window.editable_position)
         assert window.editable_position
         assert window.board_stack.currentIndex() == 0
         original = window.tracker.board.copy()
@@ -81,9 +83,10 @@ def test_a_screenshot_stays_editable_as_the_engine_follows_moves(qt, monkeypatch
         black_fen = window.tracker.board.fen()
         wait(qt, lambda: window.result and window.result["fen"] == black_fen
              and not window.result.get("provisional"))
-        assert window.board_view.arrows
-        assert all(window.tracker.board.piece_at(arrow["move"].from_square).color == chess.BLACK
-                   for arrow in window.board_view.arrows if not arrow.get("reply"))
+        current_moves = [arrow["move"] for arrow in window.board_view.arrows
+                         if not arrow.get("reply") and arrow.get("lookahead_ply", 1) == 1]
+        assert current_moves
+        assert all(move in window.tracker.board.legal_moves for move in current_moves)
 
         window.board_view.square_clicked.emit(chess.G8)
         window.board_view.square_clicked.emit(chess.F6)
@@ -148,5 +151,58 @@ def test_playing_out_a_checkmate_leaves_the_practice_board_intact(qt):
         assert review.view.board.is_checkmate()
         assert review.details.text() == "White wins · checkmate"
         assert window.tracker.board.fen() == board.fen()
+    finally:
+        window.close()
+
+
+def test_review_keeps_an_alternative_and_extends_the_selected_line(qt):
+    window = MainWindow()
+    try:
+        prepare_engine(window)
+        window.set_position(chess.Board())
+        window.review_button.click()
+        review = window.game_review
+        review.plies.setValue(2)
+        review.play_out.click()
+        wait(qt,lambda:review.job is None)
+        original = list(review.line.moves)
+        assert len(original)==2
+        review.extend.click()
+        wait(qt,lambda:review.job is None)
+        assert review.line.moves[:2]==original and len(review.line.moves)==4
+        review.line_picker.setCurrentIndex(0)
+        review.choice.setValue(2)
+        review.play_out.click()
+        wait(qt,lambda:review.job is None)
+        assert len(review.continuations)==2 and len(review.line.moves)==2
+        review.line_picker.setCurrentIndex(1)
+        assert len(review.line.moves)==4
+        assert window.tracker.board.fen()==chess.STARTING_FEN
+    finally:
+        window.close()
+
+
+def test_freeze_uses_the_confirmed_board_and_resumes_original_screen_position(qt, monkeypatch):
+    from chess_helper.direct_boards import exact_read
+    from chess_helper.capture import BoardRegion
+
+    window=MainWindow()
+    try:
+        monkeypatch.setattr(window,'start_live',lambda **kwargs:None)
+        monkeypatch.setattr(window,'request_scan',lambda **kwargs:None)
+        monkeypatch.setattr(window,'suggest',lambda **kwargs:None)
+        window.source.setCurrentIndex(1)
+        board=chess.Board();board.push_uci('e2e4')
+        exact=exact_read(board.fen(),True,'browser:fixture:0')
+        window.region=BoardRegion('browser:fixture:0',256,256,0,0,256)
+        window._last_read=exact
+        window._screen_confirmed=True
+        window.set_position(board)
+        window.screen_images.freeze()
+        assert window.source.currentIndex()==2 and window.editable_position
+        assert window.tracker.board.move_stack==board.move_stack
+        window.screen_images.resume()
+        assert window.source.currentIndex()==1 and window._last_read is exact
+        assert window.tracker.board.fen()==board.fen()
     finally:
         window.close()

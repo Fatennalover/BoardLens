@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 import chess
@@ -9,6 +10,12 @@ import numpy as np
 
 from .core import ordered_symbols
 
+MIN_BOARD_PIXELS = 96
+_PARITY = np.indices((8, 8)).sum(axis=0) % 2
+_LUMA = np.array((.114, .587, .299))
+_CELLS = np.indices((8,8)).reshape(2,-1).T
+_CORNERS = np.array(((.13,.13),(.13,.87),(.87,.13),(.87,.87)))
+_OFFSETS = np.array([(y,x) for y in (-1,0,1) for x in (-1,0,1)])
 
 @dataclass(frozen=True)
 class Detection:
@@ -20,37 +27,54 @@ class Detection:
 
 def board_colors(image):
     h,w=image.shape[:2]
-    if min(h,w)<160:return None
-    cells=np.indices((8,8)).reshape(2,-1).T
-    corners=np.array(((.13,.13),(.13,.87),(.87,.13),(.87,.87)))
-    centers=(cells[:,None,:]+corners[None,:,:])*np.array((h/8,w/8))
-    centers=centers.astype(int)
-    offsets=np.array([(y,x) for y in (-1,0,1) for x in (-1,0,1)])
-    coords=centers[:,:,None,:]+offsets[None,None,:,:]
+    if min(h,w)<MIN_BOARD_PIXELS:return None
+    coords = _sample_coordinates(h, w)
     colors=image[coords[...,0],coords[...,1]].mean(axis=2)
     return np.median(colors,axis=1).reshape(8,8,3)
+
+
+@lru_cache(maxsize=128)
+def _sample_coordinates(height, width):
+    centers = ((_CELLS[:,None,:]+_CORNERS[None,:,:])*np.array((height/8,width/8))).astype(int)
+    return centers[:,:,None,:]+_OFFSETS[None,None,:,:]
+
+
+def consistent_tile_colors(image):
+    height, width = image.shape[:2]
+    if min(height,width) < MIN_BOARD_PIXELS:
+        return False
+    centers = _sample_coordinates(height,width)[:, :, 4]
+    pixels = image[centers[...,0], centers[...,1]].reshape(8,8,4,3)
+    a,b = (np.median(pixels[_PARITY==parity].reshape(-1,3),axis=0) for parity in (0,1))
+    contrast = np.linalg.norm(a-b)
+    if contrast < 18:
+        return False
+    delta = pixels - np.where(_PARITY[...,None,None]==0, a, b)
+    near = np.sum(delta * delta, axis=-1) < max(24, contrast*.4)**2
+    return bool((near.sum(axis=-1) >= 2).mean() >= .65)
 
 
 def checker_score(image):
     """Validate all squares, sampling corners without a Python pixel loop."""
     samples=board_colors(image)
     if samples is None:return 0.
-    parity=np.indices((8,8)).sum(axis=0)%2
-    a,b=np.median(samples[parity==0],axis=0),np.median(samples[parity==1],axis=0)
+    a,b=np.median(samples[_PARITY==0],axis=0),np.median(samples[_PARITY==1],axis=0)
+    return _checker_score(samples, a, b)
+
+
+def _checker_score(samples, a, b):
     contrast=np.linalg.norm(a-b)
     if contrast<22:return 0.
-    errors=np.linalg.norm(samples-np.where(parity[...,None]==0,a,b),axis=2)
+    errors=np.linalg.norm(samples-np.where(_PARITY[...,None]==0,a,b),axis=2)
     return float(np.mean(errors<max(20,contrast*.32)))
 
 
-def complete_grid(image):
+def complete_grid(image, minimum=.90):
     """A one-file shift reverses the light top-left corner of a chessboard."""
     samples=board_colors(image)
     if samples is None:return False
-    parity=np.indices((8,8)).sum(axis=0)%2
-    a,b=np.median(samples[parity==0],axis=0),np.median(samples[parity==1],axis=0)
-    luma=np.array((.114,.587,.299))
-    return float((a-b)@luma)>=-5 and checker_score(image)>=.90
+    a,b=np.median(samples[_PARITY==0],axis=0),np.median(samples[_PARITY==1],axis=0)
+    return float((a-b)@_LUMA)>=-5 and _checker_score(samples,a,b)>=minimum
 
 
 def detect_boards(image, limit=8):
@@ -59,16 +83,19 @@ def detect_boards(image, limit=8):
     small = cv2.resize(image, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA) if scale < 1 else image
     h, w = small.shape[:2]
     sample = small[::3, ::3]
-    quant = (sample.astype(np.int32) // 20).reshape(-1, 3)
-    bins, counts = np.unique(quant, axis=0, return_counts=True)
+    quant = sample.astype(np.int32) // 20
+    ids = (quant[..., 0] * 169 + quant[..., 1] * 13 + quant[..., 2]).ravel()
+    counts = np.bincount(ids, minlength=13**3)
     tiles = []
     for idx in np.argsort(counts)[-16:]:
-        color = bins[idx] * 20 + 10
+        if not counts[idx]:
+            continue
+        color = np.array((idx // 169, idx // 13 % 13, idx % 13)) * 20 + 10
         mask = cv2.inRange(small, np.clip(color - 24, 0, 255).astype(np.uint8),
                            np.clip(color + 24, 0, 255).astype(np.uint8))
         n, _, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=4)
         for x, y, tw, th, area in stats[1:]:
-            if 20 <= tw <= min(w, h) / 5 and .94 <= tw / max(th, 1) <= 1.06 and area > tw * th * .42:
+            if MIN_BOARD_PIXELS // 8 <= tw <= min(w, h) / 5 and .94 <= tw / max(th, 1) <= 1.06 and area > tw * th * .42:
                 tiles.append((int(x), int(y), int(round((tw + th) / 2))))
     votes = {}
     for x, y, cell in tiles:
@@ -85,13 +112,21 @@ def detect_boards(image, limit=8):
                     votes[key] = [0, max(0, xx), max(0, yy), cell * 8]
                 votes[key][0] += 1
     found = []
-    for _, x, y, size in sorted(votes.values(), reverse=True)[:70]:
+    ranked = sorted(votes.values(), reverse=True)
+    if limit is not None:
+        ranked = ranked[:max(70, 4 * limit)]
+    for votes_for_grid, x, y, size in ranked:
+        if limit is None and votes_for_grid < 4:
+            break
         if x + size > w or y + size > h:
             continue
         if any(abs(x - d.x * scale) < size * .12 and abs(y - d.y * scale) < size * .12
                and abs(size - d.size * scale) < size * .12 for d in found):
             continue
-        score = checker_score(small[y:y+size, x:x+size])
+        crop = small[y:y+size, x:x+size]
+        if not consistent_tile_colors(crop):
+            continue
+        score = checker_score(crop)
         if score >= .86:
             found.append(Detection(round(x / scale), round(y / scale), round(size / scale), score))
     return sorted(found, key=lambda d: (d.score, d.size), reverse=True)[:limit]

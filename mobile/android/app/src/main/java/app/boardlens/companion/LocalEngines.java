@@ -56,88 +56,98 @@ final class LocalEngines implements AutoCloseable {
   if(engine.tiny())return tiny.search(board,engine.id(),Math.max(50,Math.round(settings.seconds()*1000)));
   return stockfish.search(c,board,settings,eval,update,engine.id());
  }
- PhoneEngine.Result recommend(Context c,ChessPosition board,PhoneSettings settings,BooleanSupplier current,RecommendationUpdate update)throws Exception{
-  cancelled=false;String id=EngineCatalog.get(settings.engine()).id();
-  long started=clock.getAsLong();
-  if(!current.getAsBoolean())throw new CancellationException();
-  boolean styled=!settings.style().equals("Balanced")&&EngineCatalog.get(id).kind().equals("stockfish");
-  PhoneSettings limits=styled?settings.override(Map.of("moves",Math.max(3,settings.moves()))):settings;
-  PhoneEngine.Result root=one(c,board,limits,id,false,update==null||styled?null:r->update.result(r,false));
-  if(cancelled||!current.getAsBoolean())throw new CancellationException();
-  if(styled)root=styleChoices(board,root,settings.style(),settings.moves());
-  // The chosen move is complete now. Optional reply searches must never delay
-  // its arrows, including when the user has disabled unfinished suggestions.
-  if(update!=null)update.result(root,true);
-  if(!settings.predict()||settings.predictionPlies()<2||root.lines().isEmpty())return root;
-  PhoneEngine.Line first=root.lines().get(0);List<String> pv=new ArrayList<>();ChessPosition next=board;
-  for(String move:first.pv()){if(pv.size()>=settings.predictionPlies()||!next.legal().contains(move))break;pv.add(move);next=next.play(move);}
-  // Maia makes one main prediction, rather than deepening a search. Its visible
-  // thinking-time budget includes that pass and limits further reply passes.
-  // Never discard the first move or wait out a timer just to simulate thinking.
-  boolean human=EngineCatalog.get(id).policy();
-  long until=(human?started:clock.getAsLong())+(long)((human?settings.seconds():settings.predictionSeconds())*1000000000L);
-  while(pv.size()<settings.predictionPlies()&&!next.legal().isEmpty()&&clock.getAsLong()<until){
-   if(cancelled||!current.getAsBoolean())throw new CancellationException();PhoneEngine.Result reply;
-   try{float left=Math.max(.05f,(until-clock.getAsLong())/1_000_000_000f); reply=one(c,next,settings.continuation(left),id,false,null);}catch(CancellationException cancelledSearch){throw cancelledSearch;}catch(Exception optionalPredictionFailed){break;}
-   if(reply.lines().isEmpty())break;String move=reply.lines().get(0).move();if(!next.legal().contains(move))throw new java.io.IOException("Engine returned an illegal continuation");pv.add(move);next=next.play(move);
-   List<PhoneEngine.Line> intermediate=new ArrayList<>(root.lines());intermediate.set(0,new PhoneEngine.Line(first.move(),first.cp(),first.mate(),first.depth(),new ArrayList<>(pv)));if(update!=null)update.result(new PhoneEngine.Result(root.fen(),root.provider(),intermediate),true);
-  }
-  List<PhoneEngine.Line> lines=new ArrayList<>(root.lines());lines.set(0,new PhoneEngine.Line(first.move(),first.cp(),first.mate(),first.depth(),pv));return new PhoneEngine.Result(root.fen(),root.provider(),lines);
+ PhoneEngine.Result recommend(Context c, ChessPosition board, PhoneSettings settings,
+                             BooleanSupplier current, RecommendationUpdate update) throws Exception {
+  return analyze(c, board, settings, current, update, false);
  }
+
  PhoneEngine.Result coach(Context c, ChessPosition board, PhoneSettings settings,
                           BooleanSupplier current, RecommendationUpdate update) throws Exception {
+  return analyze(c, board, settings, current, update, true);
+ }
+
+ private PhoneEngine.Result analyze(Context c, ChessPosition board, PhoneSettings settings,
+                                    BooleanSupplier current, RecommendationUpdate update, boolean coach) throws Exception {
   cancelled = false;
+  ensureCurrent(current);
+  long start = clock.getAsLong();
   String id = EngineCatalog.get(settings.engine()).id();
   boolean styled = !settings.style().equals("Balanced") && EngineCatalog.get(id).kind().equals("stockfish");
   PhoneSettings limits = styled ? settings.override(Map.of("moves", Math.max(3, settings.moves()))) : settings;
-  PhoneEngine.Result root = one(c, board, limits, id, false,
-      update == null || styled ? null : result -> update.result(result, false));
+  PhoneEngine.Result root = one(c, board, limits, id, false, update == null || styled ? null : result -> {
+   if (!cancelled && current.getAsBoolean()) update.result(result, false);
+  });
+  ensureCurrent(current);
   if (styled) root = styleChoices(board, root, settings.style(), settings.moves());
-  if (cancelled || !current.getAsBoolean()) throw new CancellationException();
   if (update != null) update.result(root, true);
-  if (!settings.predict() || settings.predictionPlies() < 2) return root;
+  int length = settings.predictionPlies();
+  if (!settings.predict() || length < 2 || root.lines().isEmpty()) return root;
 
   List<PhoneEngine.Line> lines = new ArrayList<>();
+  List<ChessPosition> positions = new ArrayList<>();
   for (PhoneEngine.Line line : root.lines()) {
    if (!board.legal().contains(line.move())) continue;
    List<String> path = new ArrayList<>();
-   ChessPosition position = board;
-   List<String> variation = line.pv().isEmpty() || !line.pv().get(0).equals(line.move())
-       ? List.of(line.move()) : line.pv();
-   for (String move : variation) {
-    if (path.size() >= settings.predictionPlies() || !position.legal().contains(move)) break;
-    path.add(move);
-    position = position.play(move);
-   }
-   lines.add(new PhoneEngine.Line(line.move(), line.cp(), line.mate(), line.depth(), List.copyOf(path)));
+   ChessPosition end = extend(board, line, path, length);
+   lines.add(withVariation(line, path));
+   positions.add(end);
   }
   long deadline = clock.getAsLong() + (long)(settings.predictionSeconds() * 1_000_000_000L);
-  for (int target = 2; target <= settings.predictionPlies(); target++) {
-   for (int i = 0; i < lines.size(); i++) {
-    if (cancelled || !current.getAsBoolean()) throw new CancellationException();
+  if (!coach && EngineCatalog.get(id).policy()) {
+   // The mobile live policy setting is a total budget, including its first inference.
+   deadline = Math.min(deadline, start + (long)(settings.seconds() * 1_000_000_000L));
+  }
+  for (int ply = 2; ply <= length; ply++) {
+   List<Integer> available = new ArrayList<>();
+   for (int index = 0; index < lines.size(); index++) {
+    if (lines.get(index).pv().size() == ply - 1 && !positions.get(index).legal().isEmpty()) available.add(index);
+   }
+   for (int remainingLines = available.size(); remainingLines > 0; remainingLines--) {
+    ensureCurrent(current);
     long remaining = deadline - clock.getAsLong();
-    if (remaining <= 0)
-      return new PhoneEngine.Result(root.fen(), root.provider(), List.copyOf(lines));
-    PhoneEngine.Line line = lines.get(i);
-    if (line.pv().size() >= target || line.pv().size() != target - 1) continue;
-    ChessPosition next = board;
-    for (String move : line.pv()) next = next.play(move);
-    if (next.legal().isEmpty()) continue;
-    float slice = Math.max(.05f, remaining / 1_000_000_000f / (lines.size() - i));
+    if (remaining <= 0) return new PhoneEngine.Result(root.fen(), root.provider(), List.copyOf(lines));
+    int index = available.get(available.size() - remainingLines);
+    ChessPosition next = positions.get(index);
+    PhoneEngine.Line line = lines.get(index);
+    float slice = Math.max(.05f, remaining / 1_000_000_000f / remainingLines);
     try {
      PhoneEngine.Result reply = one(c, next, settings.continuation(slice), id, false, null);
-     if (!reply.lines().isEmpty() && next.legal().contains(reply.lines().get(0).move())) {
+     ensureCurrent(current);
+     if (!reply.lines().isEmpty()) {
       List<String> path = new ArrayList<>(line.pv());
-      path.add(reply.lines().get(0).move());
-      lines.set(i, new PhoneEngine.Line(line.move(), line.cp(), line.mate(), line.depth(), List.copyOf(path)));
+      positions.set(index, extend(next, reply.lines().get(0), path, length));
+      lines.set(index, withVariation(line, path));
       if (update != null) update.result(new PhoneEngine.Result(root.fen(), root.provider(), List.copyOf(lines)), true);
      }
-    } catch (CancellationException error) { throw error; }
-      catch (Exception unavailable) { /* Keep the legal candidate when its reply is unavailable. */ }
+    } catch (CancellationException error) {
+     throw error;
+    } catch (Exception unavailable) {
+     // Keep the legal root candidate even when this optional continuation fails.
+    }
    }
   }
   return new PhoneEngine.Result(root.fen(), root.provider(), List.copyOf(lines));
  }
+
+ private void ensureCurrent(BooleanSupplier current) {
+  if (cancelled || !current.getAsBoolean()) throw new CancellationException();
+ }
+
+ static ChessPosition extend(ChessPosition position, PhoneEngine.Line line, List<String> path, int length) {
+  List<String> variation = line.pv().isEmpty() || !line.pv().get(0).equals(line.move())
+      ? List.of(line.move()) : line.pv();
+  for (String move : variation) {
+   if (path.size() >= length || !position.legal().contains(move)) break;
+   path.add(move);
+   position = position.play(move);
+  }
+  return position;
+ }
+
+ private static PhoneEngine.Line withVariation(PhoneEngine.Line line, List<String> path) {
+  return new PhoneEngine.Line(line.move(), line.cp(), line.mate(), line.depth(), List.copyOf(path));
+ }
+
  private static PhoneEngine.Result styleChoices(ChessPosition board,PhoneEngine.Result result,String style,int count){
   var lines=new ArrayList<>(result.lines());
   if(lines.size()<2)return result;

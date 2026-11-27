@@ -279,6 +279,9 @@ def can_send_move(board, result, symbols, white_bottom, allowed_side):
     return move
 
 
+MAX_LOOKAHEAD_PLIES = 32
+
+
 @dataclass(frozen=True)
 class SearchSettings:
     seconds: float = 1.0

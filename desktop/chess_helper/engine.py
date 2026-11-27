@@ -10,7 +10,7 @@ import chess
 import chess.engine
 
 from .recommendation_styles import flounder_index,style_index
-from .core import SearchSettings, advantage, describe_move, move_insights, simple_move, data_dir
+from .core import MAX_LOOKAHEAD_PLIES, SearchSettings, advantage, describe_move, move_insights, simple_move, data_dir
 
 
 def engine_environment(path):
@@ -63,11 +63,14 @@ class EngineSession:
         finally:
             self.lock.release()
 
-    def close(self):
-        self.closed = True
+    def discard(self):
         engine, self.engine = self.engine, None
         if engine:
             engine.close()
+
+    def close(self):
+        self.closed = True
+        self.discard()
 
 
 class EngineJob:
@@ -77,13 +80,25 @@ class EngineJob:
         self.lock = threading.Lock()
         self.session=None
         self.on_update=None
-        self.reply_for_every_move = False
 
     def cancel(self):
         self.cancelled.set()
         with self.lock:
-            if self.analysis:
-                self.analysis.stop()
+            active = self.analysis
+            if active is not None:
+                try:
+                    active.stop()
+                except (chess.engine.EngineError, RuntimeError):
+                    pass
+        if active is not None and self.session is not None:
+            timer = threading.Timer(.4, self._interrupt, (active,))
+            timer.daemon = True
+            timer.start()
+
+    def _interrupt(self, active):
+        with self.lock:
+            if self.analysis is active:
+                self.session.discard()
 
     def run(self, path, board, settings: SearchSettings):
         if not board.is_valid():
@@ -95,128 +110,115 @@ class EngineJob:
                 if self.cancelled.is_set():return None
             try:
                 if self.cancelled.is_set():return None
-                return self._search(self.session.get(path),board,settings)
-            except chess.engine.EngineTerminatedError:
-                if self.cancelled.is_set():return None
-                raise
+                try:
+                    return self._search(self.session.get(path),board,settings)
+                except (chess.engine.EngineTerminatedError, TimeoutError):
+                    self.session.discard()
+                    if self.cancelled.is_set():return None
+                    return self._search(self.session.get(path),board,settings)
             finally:
+                with self.lock:
+                    self.analysis = None
                 self.session.lock.release()
         with chess.engine.SimpleEngine.popen_uci(path, timeout=90 if isinstance(path,list) else 15,
                 **uci_process_options(path)) as engine:
             return self._search(engine,board,settings)
 
-    def _search(self,engine,board,settings):
-        pipeline_started=time.monotonic()
-        result=self._search_once(engine,board,settings)
-        if not result or self.cancelled.is_set() or not settings.predict_continuations:return result
-        target=max(1,min(12,int(settings.prediction_plies)))
-        budget=max(.1,min(60.,float(settings.prediction_seconds)))
-        for line in result['lines']:
-            existing=line.get('pv_moves') or [line['move']]
-            if len(existing)>target:line.update(describe_continuation(board,existing[:target]))
-        deadline = time.monotonic() + budget
-        if self.reply_for_every_move and target > 1:
-            self._fill_candidate_replies(engine, board, settings, result, deadline)
-            if self.cancelled.is_set():
-                return None
-        lead=result['lines'][0]
-        if len(lead.get('pv_moves',[]))>=target:
-            if self.reply_for_every_move:
-                result['primary_elapsed'] = result.get('elapsed', 0.)
-                result['elapsed'] = time.monotonic() - pipeline_started
+    def _search(self, engine, board, settings):
+        started = time.monotonic()
+        result = self._search_once(engine, board, settings)
+        if self.cancelled.is_set():
+            return None
+        if not result or not settings.predict_continuations:
             return result
-        # One-move providers can still predict a continuation. Publish the
-        # current move first; subsequent positions never replace its identity.
-        if self.on_update:self.on_update(dict(deepcopy(result),continuation_pending=True,primary_complete=True))
-        moves=list(lead.get('pv_moves') or [lead['move']]);probe=board.copy()
-        for uci in moves:
-            move=chess.Move.from_uci(uci)
-            if move not in probe.legal_moves:return result
-            probe.push(move)
-        callback=self.on_update;self.on_update=None
-        prediction_error = ''
-        budget_exhausted = False
-        single_prediction = settings.engine_kind in ('maia3', 'maia2', 'maia1', 'neural', 'allie')
-        estimated_pass = result.get('elapsed', 0.) if single_prediction else 0.
-        try:
-            while len(moves)<target and not probe.is_game_over() and not self.cancelled.is_set():
-                remaining=deadline-time.monotonic()
-                if remaining <= 0 or remaining < estimated_pass:
-                    budget_exhausted = True
-                    break
-                # A model pass already in progress can finish after the budget.
-                # Use the last pass to decide whether another fits.
-                followup=replace(settings,multipv=1,predict_continuations=False,
-                                 seconds=min(settings.seconds,remaining),
-                                 mode='Time + depth' if settings.mode=='Depth' else settings.mode)
-                try:next_result=self._search_once(engine,probe,followup)
-                except (ValueError,chess.engine.EngineError) as error:
-                    prediction_error=str(error);break
-                if not next_result:break
-                if single_prediction:
-                    estimated_pass = next_result.get('elapsed', estimated_pass)
-                move=chess.Move.from_uci(next_result['lines'][0]['move'])
-                if move not in probe.legal_moves:break
-                moves.append(move.uci());probe.push(move)
-                if callback:
-                    update=deepcopy(result);update['lines'][0].update(describe_continuation(board,moves));update['continuation_pending']=len(moves)<target;update['primary_complete']=True;callback(update)
-        finally:self.on_update=callback
-        if self.cancelled.is_set():return None
-        refreshed=describe_continuation(board,moves)
-        result['lines'][0].update(refreshed);result['continuation_pending']=False;result['primary_elapsed']=result.get('elapsed',0);result['elapsed']=time.monotonic()-pipeline_started
-        result['prediction']={'requested_plies':target,'completed_plies':len(moves),
-                              'reply_budget':budget,'error':prediction_error,'budget_exhausted':len(moves)<target and (budget_exhausted or time.monotonic()>=deadline)}
-        return result
 
-    def _fill_candidate_replies(self, engine, board, settings, result, deadline):
-        pending = []
+        target = max(1, min(MAX_LOOKAHEAD_PLIES, int(settings.prediction_plies)))
+        budget = max(.1, min(60., float(settings.prediction_seconds)))
+        deadline = time.monotonic() + budget
+        callback = self.on_update
+        elapsed = result.get("elapsed", 0.)
+        policy = settings.engine_kind in ('maia3', 'maia2', 'maia1', 'neural', 'allie')
+        estimate = elapsed if policy else 0.
+        candidates = []
         for line in result["lines"]:
-            if line.get("reply_simple"):
-                continue
-            probe = board.copy()
-            try:
-                probe.push_uci(line["move"])
-            except ValueError:
-                line["reply_status"] = "Engine returned no reply"
-                continue
-            outcome = probe.outcome()
-            if outcome:
-                line["reply_status"] = "Checkmate" if probe.is_checkmate() else "The game ends here"
-            else:
-                pending.append((line, probe))
-        if not pending:
-            return
+            pv = describe_continuation(board, (line.get("pv_moves") or [line["move"]])[:target])
+            line.update(pv)
+            position = board.copy()
+            for move in pv["pv_moves"]:
+                position.push_uci(move)
+            candidates.append((line, position))
 
-        callback, self.on_update = self.on_update, None
-        human = settings.engine_kind in ("maia3", "maia2", "maia1", "neural", "allie")
-        estimated_pass = result.get("elapsed", 0.) if human else 0.
+        def waiting():
+            return [(line, position) for line, position in candidates
+                    if len(line["pv_moves"]) < target and not position.is_game_over() and not line.get("prediction_error")]
+
+        def publish():
+            if callback and not self.cancelled.is_set():
+                callback(dict(deepcopy(result), continuation_pending=bool(waiting()), primary_complete=True))
+
+        timed_out = False
+        pending = waiting()
+        if pending:
+            publish()
+        self.on_update = None
         try:
-            for index, (line, probe) in enumerate(pending):
-                if self.cancelled.is_set():
+            while pending and not self.cancelled.is_set():
+                # Complete a round of replies before deepening any one variation.
+                pending.sort(key=lambda option: len(option[0]["pv_moves"]))
+                for index, (line, position) in enumerate(pending):
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0 or remaining < estimate:
+                        timed_out = True
+                        break
+                    if self.cancelled.is_set():
+                        return None
+                    seconds = min(settings.seconds, remaining / (len(pending)-index))
+                    limits = replace(settings, multipv=1, seconds=seconds, predict_continuations=False,
+                                     mode="Time + depth" if settings.mode == "Depth" else settings.mode)
+                    try:
+                        followup = self._search_once(engine, position, limits)
+                        if not followup:
+                            if self.cancelled.is_set():
+                                return None
+                            raise ValueError("Engine returned no follow-up move")
+                        if policy:
+                            estimate = followup.get("elapsed", estimate)
+                        selected = followup["lines"][0]
+                        moves = selected.get("pv_moves") or [selected["move"]]
+                        current = line["pv_moves"]
+                        extension = describe_continuation(position, moves[:target-len(current)])["pv_moves"]
+                        if not extension:
+                            raise ValueError("Engine returned no legal follow-up move")
+                        for uci in extension:
+                            position.push_uci(uci)
+                        line.update(describe_continuation(board, current + extension))
+                        publish()
+                    except (ValueError, chess.engine.EngineError, TimeoutError) as error:
+                        line["prediction_error"] = str(error)
+                if timed_out:
                     break
-                remaining = deadline - time.monotonic()
-                if remaining <= 0 or remaining < estimated_pass:
-                    line["reply_status"] = "Reply budget reached"
-                    continue
-                if callback:
-                    callback(dict(deepcopy(result), continuation_pending=True, primary_complete=True))
-                followup = replace(settings, multipv=1, predict_continuations=False,
-                                   seconds=min(settings.seconds, remaining / (len(pending) - index)),
-                                   mode="Time + depth" if settings.mode == "Depth" else settings.mode)
-                try:
-                    reply = self._search_once(engine, probe, followup)
-                    if reply:
-                        move = chess.Move.from_uci(reply["lines"][0]["move"])
-                        if move in probe.legal_moves:
-                            line.update(describe_continuation(board, [line["move"], move.uci()]))
-                            if human:
-                                estimated_pass = reply.get("elapsed", estimated_pass)
-                            continue
-                except (ValueError, chess.engine.EngineError):
-                    pass
-                line["reply_status"] = "Engine returned no reply"
+                pending = waiting()
         finally:
             self.on_update = callback
+        if self.cancelled.is_set():
+            return None
+        for line, position in candidates:
+            completed = len(line["pv_moves"])
+            complete = completed >= target
+            outcome = position.outcome()
+            line["prediction"] = {
+                "requested_plies": target, "completed_plies": completed,
+                "error": line.get("prediction_error", ""),
+                "budget_exhausted": not complete and outcome is None and not line.get("prediction_error") and timed_out,
+                "terminal": not complete and outcome is not None,
+                "reply_budget": budget,
+            }
+            if target > 1 and completed < 2:
+                line["reply_status"] = ("Checkmate" if position.is_checkmate() else "The game ends here" if outcome else
+                                        "Reply budget reached" if line["prediction"]["budget_exhausted"] else "Reply unavailable")
+        result.update(continuation_pending=False, primary_elapsed=elapsed,
+                      elapsed=time.monotonic() - started, prediction=result["lines"][0]["prediction"])
+        return result
 
     def _search_once(self,engine,board,settings):
         if self.cancelled.is_set():
@@ -331,21 +333,11 @@ def summarize(board, infos, engine_name,allow_unscored=False):
         pv = info.get("pv", [])
         if not pv or ("score" not in info and not allow_unscored):
             continue
+        variation = describe_continuation(board, [move.uci() for move in pv[:MAX_LOOKAHEAD_PLIES]])
+        if not variation["pv_moves"]:
+            continue
         score = info['score'].white() if 'score' in info else None
         cp,mate=(score.score(mate_score=100000),score.mate()) if score else (None,None)
-        probe = board.copy()
-        moves = []
-        for move in pv[:12]:
-            if move not in probe.legal_moves:
-                break
-            prefix = f"{probe.fullmove_number}." if probe.turn else (f"{probe.fullmove_number}..." if not moves else "")
-            moves.append(prefix + probe.san(move))
-            probe.push(move)
-        reply = ""
-        if len(pv) > 1:
-            reply_board = board.copy()
-            reply_board.push(pv[0])
-            reply = reply_board.san(pv[1]) + " — " + describe_move(reply_board, pv[1])
         wdl = info.get("wdl")
         wdl_text = ""
         expected_score = None
@@ -357,13 +349,8 @@ def summarize(board, infos, engine_name,allow_unscored=False):
                 wdl_text = f"White win {values.wins/total:.0%} · draw {values.draws/total:.0%} · Black win {values.losses/total:.0%}"
         lines.append({"move": pv[0].uci(), "san": board.san(pv[0]), "cp": cp, "mate": mate,
                       "score": (f"M{abs(mate)} {'White' if mate > 0 else 'Black'}" if mate is not None else f"{cp/100:+.2f}" if cp is not None else "—"),
-                      "depth": info.get("depth", 0), "pv": " ".join(moves), "description": describe_move(board, pv[0]),
-                      "reply": reply, "reply_move": pv[1].uci() if len(pv)>1 else "",
-                      "pv_moves": [move.uci() for move in pv[:12]],
-                      "future_move": pv[2].uci() if len(pv)>2 else "",
-                      "future_simple": describe_continuation(board,[move.uci() for move in pv[:3]])["future_simple"],
+                      "depth": info.get("depth", 0), **variation, "description": describe_move(board, pv[0]),
                       "simple": simple_move(board,pv[0]),
-                      "reply_simple": simple_move(reply_board,pv[1]) if len(pv)>1 else "",
                       "insights": move_insights(board, pv[0]),
                       "advantage": advantage(cp, mate) if cp is not None else "This bot does not provide an evaluation", "wdl": wdl_text, "expected_score": expected_score})
     if not lines:
@@ -371,15 +358,38 @@ def summarize(board, infos, engine_name,allow_unscored=False):
     return {"fen": board.fen(), "engine": engine_name, "lines": lines}
 
 
-def describe_continuation(board,moves):
-    probe=board.copy();pv=[];reply='';reply_simple='';future_simple=''
-    for index,uci in enumerate(moves):
-        move=chess.Move.from_uci(uci)
-        if move not in probe.legal_moves:break
-        prefix=f'{probe.fullmove_number}.' if probe.turn else (f'{probe.fullmove_number}...' if not pv else '')
-        san=probe.san(move);pv.append(prefix+san)
-        if index==1:reply=san+' — '+describe_move(probe,move);reply_simple=simple_move(probe,move)
-        if index==2:future_simple=simple_move(probe,move)
+def describe_continuation(board, moves):
+    probe = board.copy()
+    san_moves, validated = [], []
+    reply = reply_simple = future_simple = ''
+    for index, uci in enumerate(moves):
+        try:
+            move = chess.Move.from_uci(uci)
+        except (ValueError, TypeError, AttributeError):
+            break
+        if move not in probe.legal_moves:
+            break
+        prefix = f'{probe.fullmove_number}.' if probe.turn else (f'{probe.fullmove_number}...' if not san_moves else '')
+        san = probe.san(move)
+        san_moves.append(prefix + san)
+        validated.append(move.uci())
+        if index == 1:
+            reply = san + ' — ' + describe_move(probe, move)
+            reply_simple = simple_move(probe, move)
+        if index == 2:
+            future_simple = simple_move(probe, move)
         probe.push(move)
-    return {'pv':' '.join(pv),'pv_moves':list(moves),'reply':reply,'reply_move':moves[1] if len(moves)>1 else '',
-            'reply_simple':reply_simple,'future_move':moves[2] if len(moves)>2 else '', 'future_simple':future_simple}
+    return {
+        'pv': ' '.join(san_moves), 'pv_moves': validated,
+        'reply': reply, 'reply_move': validated[1] if len(validated) > 1 else '', 'reply_simple': reply_simple,
+        'future_move': validated[2] if len(validated) > 2 else '', 'future_simple': future_simple,
+    }
+
+
+def prediction_status(line):
+    prediction = line.get('prediction')
+    if not prediction or prediction['completed_plies'] >= prediction['requested_plies']:
+        return ''
+    reason = ('position ends' if prediction['terminal'] else 'lookahead budget reached'
+              if prediction['budget_exhausted'] else 'engine returned a shorter line')
+    return f"{prediction['completed_plies']} of {prediction['requested_plies']} plies · {reason}"
